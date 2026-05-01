@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEnum, IsString } from 'class-validator';
+import { IsEnum, IsString, IsOptional } from 'class-validator';
 
 export enum NewsCategory {
   ALL = 'all',
@@ -10,6 +10,13 @@ export enum NewsCategory {
   CULTURE = 'culture',
 }
 
+
+export enum NewsLanguage {
+  ENGLISH = 'en',
+  HINDI = 'hi',
+  GUJARATI = 'gu',
+}
+
 export class CreateNewsDto {
   @ApiProperty({
     description: 'The link to the news image',
@@ -17,6 +24,14 @@ export class CreateNewsDto {
   })
   @IsString()
   imageLink: string;
+
+  @ApiProperty({
+    description: 'Array of links to news images',
+    type: [String],
+    required: false,
+  })
+  @IsOptional()
+  imageLinks?: string[];
 
   @ApiProperty({
     description: 'The title of the news',
@@ -40,4 +55,41 @@ export class CreateNewsDto {
   })
   @IsEnum(NewsCategory)
   category: NewsCategory;
+
+  @ApiProperty({
+    description: 'The language of the news',
+    enum: NewsLanguage,
+    example: NewsLanguage.ENGLISH,
+    required: false,
+  })
+  @IsEnum(NewsLanguage)
+  @IsOptional()
+  language?: NewsLanguage;
+
+  @ApiProperty({
+    description: 'The source name of the news',
+    example: 'BBC News',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  sourceName?: string;
+
+  @ApiProperty({
+    description: 'The source URL of the news',
+    example: 'https://bbc.com/news/123',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  sourceUrl?: string;
+
+  @ApiProperty({
+    description: 'The publication date of the news',
+    example: '2024-05-01T12:00:00Z',
+    required: false,
+  })
+  @IsOptional()
+  publishedAt?: Date;
 }
+

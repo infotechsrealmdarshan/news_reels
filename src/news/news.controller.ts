@@ -1,7 +1,7 @@
 import { Controller, Post, Get, Body, Query } from '@nestjs/common';
 import { NewsService } from './news.service';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
-import { CreateNewsDto, NewsCategory } from './dto/create-news.dto';
+import { CreateNewsDto, NewsCategory, NewsLanguage } from './dto/create-news.dto';
 import { GetNewsDto } from './dto/get-news.dto';
 
 @ApiTags('news')
@@ -21,7 +21,7 @@ export class NewsController {
 
   @Get()
   @ApiOperation({
-    summary: 'Get news items with optional category filter and pagination',
+    summary: 'Get news items with optional category/language filter and pagination',
   })
   @ApiResponse({
     status: 200,
@@ -32,6 +32,12 @@ export class NewsController {
     required: false,
     enum: NewsCategory,
     description: 'Filter by category. Omit or use "all" for all news.',
+  })
+  @ApiQuery({
+    name: 'language',
+    required: false,
+    enum: NewsLanguage,
+    description: 'Filter by language (en, hi, gu).',
   })
   @ApiQuery({
     name: 'page',
@@ -45,7 +51,8 @@ export class NewsController {
     type: Number,
     description: 'Items per page (default: 10)',
   })
-  async findAll(@Query() query: GetNewsDto) {
+  async findAll(@Query() query: GetNewsDto & { language?: NewsLanguage }) {
     return this.newsService.getNews(query);
   }
 }
+

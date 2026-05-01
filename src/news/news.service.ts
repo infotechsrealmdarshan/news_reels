@@ -8,8 +8,9 @@ import {
   orderBy,
   where,
   Timestamp,
+  limit as firestoreLimit,
 } from 'firebase/firestore';
-import { NewsCategory } from './dto/create-news.dto';
+import { NewsCategory, NewsLanguage, CreateNewsDto } from './dto/create-news.dto';
 import { GetNewsDto } from './dto/get-news.dto';
 
 @Injectable()
@@ -18,18 +19,32 @@ export class NewsService {
 
   constructor(private firebaseService: FirebaseService) {}
 
-  async createNews(data: {
-    imageLink: string;
-    title: string;
-    description: string;
-    category: NewsCategory;
-  }) {
+  async createNews(data: CreateNewsDto) {
     try {
       const db = this.firebaseService.getFirestore();
       const newsCollection = collection(db, this.collectionName);
 
+      // Check if news with same sourceUrl already exists to avoid duplicates
+      if (data.sourceUrl) {
+        const duplicateQuery = query(
+          newsCollection,
+          where('sourceUrl', '==', data.sourceUrl),
+        );
+        const duplicateSnapshot = await getDocs(duplicateQuery);
+
+        if (!duplicateSnapshot.empty) {
+          return {
+            error: true,
+            msg: 'News already exists',
+            data: null,
+          };
+        }
+      }
+
+
       const newsData = {
         ...data,
+        publishedAt: data.publishedAt ? Timestamp.fromDate(new Date(data.publishedAt)) : Timestamp.now(),
         createdAt: Timestamp.now(),
       };
 
@@ -41,6 +56,7 @@ export class NewsService {
           id: docRef.id,
           ...newsData,
           createdAt: newsData.createdAt.toDate(),
+          publishedAt: newsData.publishedAt.toDate(),
         },
       };
     } catch (error) {
@@ -52,30 +68,32 @@ export class NewsService {
     }
   }
 
-  async getNews(params: GetNewsDto) {
+  async getNews(params: GetNewsDto & { language?: NewsLanguage }) {
     try {
       const { category, page = 1, limit = 10 } = params;
 
       const db = this.firebaseService.getFirestore();
       const newsCollection = collection(db, this.collectionName);
 
-      // Build query — filter by category only when it's not "all" (or omitted)
+      // Build query
       const constraints: any[] = [orderBy('createdAt', 'desc')];
+      
       if (category && category !== NewsCategory.ALL) {
-        constraints.unshift(where('category', '==', category));
+        constraints.push(where('category', '==', category));
       }
 
       const newsQuery = query(newsCollection, ...constraints);
       const querySnapshot = await getDocs(newsQuery);
 
+
       const allDocs = querySnapshot.docs.map((doc) => {
         const docData = doc.data();
         return {
-          id: doc.id,
           title: docData.title,
           imageLink: docData.imageLink,
+          imageLinks: docData.imageLinks || [docData.imageLink],
           description: docData.description,
-          category: docData.category ?? NewsCategory.ALL,
+          category: docData.category,
           createdAt:
             docData.createdAt instanceof Timestamp
               ? docData.createdAt.toDate()
@@ -83,7 +101,7 @@ export class NewsService {
         };
       });
 
-      // Pagination (client-side after full fetch — Firestore offset workaround)
+      // Pagination
       const total = allDocs.length;
       const totalPages = Math.ceil(total / limit);
       const startIndex = (page - 1) * limit;
@@ -112,3 +130,5 @@ export class NewsService {
     }
   }
 }
+
+
