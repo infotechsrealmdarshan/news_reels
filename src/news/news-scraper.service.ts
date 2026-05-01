@@ -45,7 +45,7 @@ export class NewsScraperService {
   constructor(private readonly newsService: NewsService) { }
 
   @Cron('0 0,6,12 * * *') // Run at 12:00 AM, 6:00 AM, and 12:00 PM daily
-  // @Cron('*/5 * * * *') // Run every 1 minutes
+  // @Cron('*/3 * * * *') // Run every 1 minutes
   async handleCron() {
     this.logger.debug('Starting Direct HTML News Scraping...');
     for (const source of this.sources) {
@@ -141,27 +141,29 @@ export class NewsScraperService {
       }
 
       // Look specifically for images inside article content first (Ultra-Strict)
-      const contentImages = $('article img, .main-img img, .story-content img, .article-body img, .post-content img');
+      const contentImages = $('article img, .main-img img, .story-content img, .article-body img, .post-content img, .v-article-content img');
       contentImages.each((_, el) => {
         const src = $(el).attr('data-src') || $(el).attr('data-lazy-src') || $(el).attr('data-original') || $(el).attr('src');
         if (src && src.startsWith('http')) {
           const lowerSrc = src.toLowerCase();
-          // Ultra-Strict Noise Filter
-          const isNoise = /logo|banner|icon|avatar|placeholder|bg-|background|sprite|loader|ad-|advertise|default|thumb|stub|no-img|noimage|silhouette|pixel|spacer|transparent|150x|100x|50x|twitter|facebook|whatsapp/.test(lowerSrc);
+
+          // Bulletproof Noise Filter: No logos, icons, banners, branding, or social stubs
+          const isNoise = /logo|banner|icon|avatar|placeholder|bg-|background|sprite|loader|ad-|advertise|default|thumb|stub|no-img|noimage|silhouette|pixel|spacer|transparent|150x|100x|50x|twitter|facebook|whatsapp|toi|abp|zee|news18|social|follow|subscribe|app-download|branding/.test(lowerSrc);
 
           if (!isNoise && !images.includes(src)) {
+            // Get dimensions if available, otherwise assume 400x200 for content images
             const width = parseInt($(el).attr('width') || '400');
-            const height = parseInt($(el).attr('height') || '200');
-            // Strict Size: Must be large landscape news photo
-            if (width >= 300 && (width / height > 1.1)) {
+            const height = parseInt($(el).attr('height') || '250');
+
+            // Final Safeguard: News photos are ALWAYS landscape but not super-thin banners.
+            // Ratio must be between 1.2 (almost square) and 2.2 (wide banner)
+            const ratio = width / height;
+            if (width >= 250 && height >= 150 && ratio >= 1.2 && ratio <= 2.2) {
               images.push(src);
             }
           }
         }
       });
-
-
-
 
       // Extract Text - More comprehensive selectors
       let text = '';
