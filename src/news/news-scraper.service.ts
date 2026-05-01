@@ -44,7 +44,8 @@ export class NewsScraperService {
 
   constructor(private readonly newsService: NewsService) { }
 
-  @Cron('*/1 * * * *') // Run every 10 minutes
+  @Cron('0 0,6,12 * * *') // Run at 12:00 AM, 6:00 AM, and 12:00 PM daily
+  // @Cron('*/5 * * * *') // Run every 1 minutes
   async handleCron() {
     this.logger.debug('Starting Direct HTML News Scraping...');
     for (const source of this.sources) {
@@ -77,7 +78,7 @@ export class NewsScraperService {
         let href = $(el).attr('href');
 
         // Lower threshold to catch more headlines
-        if (!href || !title || title.length < 30) return; 
+        if (!href || !title || title.length < 30) return;
 
         if (href.startsWith('/')) href = baseUrl + href;
         if (!href.startsWith('http')) return;
@@ -132,34 +133,64 @@ export class NewsScraperService {
       });
       const $ = cheerio.load(data);
 
-      // Extract Images
+      // Extract Images - High priority on og:image meta tag
       const images: string[] = [];
-      $('article img, .main-img img, .story-img img, .article-img img').each((_, el) => {
-        const src = $(el).attr('src') || $(el).attr('data-src');
-        if (src && src.startsWith('http') && !src.includes('ads') && !src.includes('logo')) {
-          images.push(src);
+      const ogImage = $('meta[property="og:image"]').attr('content');
+      if (ogImage && ogImage.startsWith('http')) {
+        images.push(ogImage);
+      }
+
+      // Look specifically for images inside article content first (Ultra-Strict)
+      const contentImages = $('article img, .main-img img, .story-content img, .article-body img, .post-content img');
+      contentImages.each((_, el) => {
+        const src = $(el).attr('data-src') || $(el).attr('data-lazy-src') || $(el).attr('data-original') || $(el).attr('src');
+        if (src && src.startsWith('http')) {
+          const lowerSrc = src.toLowerCase();
+          // Ultra-Strict Noise Filter
+          const isNoise = /logo|banner|icon|avatar|placeholder|bg-|background|sprite|loader|ad-|advertise|default|thumb|stub|no-img|noimage|silhouette|pixel|spacer|transparent|150x|100x|50x|twitter|facebook|whatsapp/.test(lowerSrc);
+
+          if (!isNoise && !images.includes(src)) {
+            const width = parseInt($(el).attr('width') || '400');
+            const height = parseInt($(el).attr('height') || '200');
+            // Strict Size: Must be large landscape news photo
+            if (width >= 300 && (width / height > 1.1)) {
+              images.push(src);
+            }
+          }
         }
       });
 
-      // Extract Text
+
+
+
+      // Extract Text - More comprehensive selectors
       let text = '';
-      const contentSelectors = ['article', '.article-body', '.story-body', '.content-area', '.entry-content'];
+      const contentSelectors = [
+        'article', '.article-body', '.story-body', '.content-area', '.entry-content',
+        '.article-content', '.story-desc', '.article-desc', '.post-content', '.article_body',
+        '#article-body', '#story-body', '.v-article-content', '.description'
+      ];
+
       for (const selector of contentSelectors) {
-        const paragraphs = $(selector).find('p').map((_, p) => $(p).text().trim()).get();
-        if (paragraphs.length > 3) {
-          text = paragraphs.join('\n\n');
-          break;
+        const content = $(selector);
+        if (content.length > 0) {
+          const paragraphs = content.find('p').map((_, p) => $(p).text().trim()).get();
+          const cleanParagraphs = paragraphs.filter(p => p.length > 20);
+          if (cleanParagraphs.length > 2) {
+            text = cleanParagraphs.join('\n\n');
+            break;
+          }
         }
       }
 
       if (!text) {
         const paragraphs = $('p').map((_, p) => $(p).text().trim()).get();
-        text = paragraphs.filter(p => p.length > 80).slice(0, 15).join('\n\n');
+        text = paragraphs.filter(p => p.length > 100).slice(0, 15).join('\n\n');
       }
 
       return {
         text,
-        images: [...new Set(images)].slice(0, 5),
+        images: [...new Set(images)].slice(0, 8),
         wordCount: text.split(/\s+/).length,
       };
     } catch {
@@ -167,3 +198,4 @@ export class NewsScraperService {
     }
   }
 }
+

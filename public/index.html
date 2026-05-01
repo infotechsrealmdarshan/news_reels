@@ -517,7 +517,7 @@
 
     <script>
         let page = 1;
-        let limit = 50;
+        let limit = 500;
         let category = 'all';
         let totalPages = 1;
         let newsData = [];
@@ -546,11 +546,19 @@
                         month: 'short', day: 'numeric', year: 'numeric'
                     });
 
+                    const images = item.imageLinks && item.imageLinks.length > 0 ? item.imageLinks : [item.imageLink];
+                    const sliderHtml = images.map((img, i) => `
+                        <img src="${img || 'https://via.placeholder.com/800x450?text=No+Image+Available'}" 
+                             class="card-image ${i === 0 ? 'active' : ''}" 
+                             style="display: ${i === 0 ? 'block' : 'none'}; position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover;"
+                             onerror="this.src='https://via.placeholder.com/800x450?text=No+Image+Available'">
+                    `).join('');
+
                     const card = document.createElement('div');
                     card.className = 'news-card';
                     card.innerHTML = `
-                        <div class="image-wrapper">
-                            <img src="${item.imageLink || 'https://via.placeholder.com/800x450?text=No+Image+Available'}" class="card-image" loading="lazy" onerror="this.src='https://via.placeholder.com/800x450?text=No+Image+Available'">
+                        <div class="image-wrapper card-slider" style="position: relative; height: 200px; overflow: hidden;">
+                            ${sliderHtml}
                             <div class="category-label">${item.category}</div>
                         </div>
                         <div class="card-body">
@@ -568,6 +576,9 @@
                     grid.appendChild(card);
                 });
 
+                // Start Auto-Play for Cards
+                startCardSliders();
+
                 loader.style.display = 'none';
                 grid.style.opacity = '1';
                 pagin.style.opacity = '1';
@@ -578,6 +589,31 @@
                 loader.style.display = 'none';
             }
         }
+
+        let cardSliderInterval;
+        function startCardSliders() {
+            if (cardSliderInterval) clearInterval(cardSliderInterval);
+            cardSliderInterval = setInterval(() => {
+                document.querySelectorAll('.card-slider').forEach(slider => {
+                    const images = slider.querySelectorAll('.card-image');
+                    if (images.length <= 1) return;
+
+                    let activeImg = slider.querySelector('.card-image.active');
+                    let nextImg = activeImg.nextElementSibling;
+
+                    if (!nextImg || !nextImg.classList.contains('card-image')) {
+                        nextImg = images[0];
+                    }
+
+                    activeImg.classList.remove('active');
+                    activeImg.style.display = 'none';
+                    nextImg.classList.add('active');
+                    nextImg.style.display = 'block';
+                });
+            }, 3000);
+        }
+
+
 
         let autoSlideInterval;
         let currentSlideIndex = 0;
