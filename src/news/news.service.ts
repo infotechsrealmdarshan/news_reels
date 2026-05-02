@@ -8,7 +8,10 @@ import {
   orderBy,
   where,
   Timestamp,
-  limit as firestoreLimit,
+  doc,
+  updateDoc,
+  increment,
+  getDoc,
 } from 'firebase/firestore';
 import { NewsCategory, NewsLanguage, CreateNewsDto } from './dto/create-news.dto';
 import { GetNewsDto } from './dto/get-news.dto';
@@ -44,6 +47,8 @@ export class NewsService {
 
       const newsData = {
         ...data,
+        likes: 0,
+        views: 0,
         publishedAt: data.publishedAt ? Timestamp.fromDate(new Date(data.publishedAt)) : Timestamp.now(),
         createdAt: Timestamp.now(),
       };
@@ -95,6 +100,10 @@ export class NewsService {
           imageLinks: docData.imageLinks || [docData.imageLink],
           description: docData.description,
           category: docData.category,
+          likes: docData.likes || 0,
+          views: docData.views || 0,
+          sourceName: docData.sourceName,
+          sourceUrl: docData.sourceUrl,
           createdAt:
             docData.createdAt instanceof Timestamp
               ? docData.createdAt.toDate()
@@ -140,6 +149,71 @@ export class NewsService {
         data: [],
         pagination: null,
       };
+    }
+  }
+
+  async getNewsById(id: string) {
+    try {
+      const db = this.firebaseService.getFirestore();
+      const docRef = doc(db, this.collectionName, id);
+      const snapshot = await getDoc(docRef);
+      if (!snapshot.exists()) {
+        return { error: true, msg: 'News not found', data: null };
+      }
+      const docData = snapshot.data();
+      return {
+        error: false,
+        msg: 'News fetched successfully',
+        data: {
+          id: snapshot.id,
+          title: docData.title,
+          imageLink: docData.imageLink,
+          imageLinks: docData.imageLinks || [docData.imageLink],
+          description: docData.description,
+          category: docData.category,
+          language: docData.language,
+          likes: docData.likes || 0,
+          views: docData.views || 0,
+          sourceName: docData.sourceName,
+          sourceUrl: docData.sourceUrl,
+          publishedAt: docData.publishedAt instanceof Timestamp ? docData.publishedAt.toDate() : docData.publishedAt,
+          createdAt: docData.createdAt instanceof Timestamp ? docData.createdAt.toDate() : docData.createdAt,
+        },
+      };
+    } catch (error) {
+      return { error: true, msg: error.message || 'Failed to fetch news', data: null };
+    }
+  }
+
+  async likeNews(id: string) {
+    try {
+      const db = this.firebaseService.getFirestore();
+      const docRef = doc(db, this.collectionName, id);
+      await updateDoc(docRef, { likes: increment(1) });
+      const updated = await getDoc(docRef);
+      return {
+        error: false,
+        msg: 'Liked successfully',
+        data: { id, likes: updated.data()?.likes ?? 0 },
+      };
+    } catch (error) {
+      return { error: true, msg: error.message || 'Failed to like news', data: null };
+    }
+  }
+
+  async viewNews(id: string) {
+    try {
+      const db = this.firebaseService.getFirestore();
+      const docRef = doc(db, this.collectionName, id);
+      await updateDoc(docRef, { views: increment(1) });
+      const updated = await getDoc(docRef);
+      return {
+        error: false,
+        msg: 'View counted',
+        data: { id, views: updated.data()?.views ?? 0 },
+      };
+    } catch (error) {
+      return { error: true, msg: error.message || 'Failed to count view', data: null };
     }
   }
 }

@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { FirebaseService } from '../firebase/firebase.service';
-import { collection, addDoc, getDocs, query, orderBy, Timestamp } from 'firebase/firestore';
+import {
+  collection, addDoc, getDocs, query, orderBy, Timestamp, where,
+  doc, updateDoc, increment, getDoc,
+} from 'firebase/firestore';
 import { GetReelsDto } from './dto/get-reels.dto';
 
 @Injectable()
@@ -10,21 +13,41 @@ export class ReelsService {
   constructor(private firebaseService: FirebaseService) {}
 
   async createReel(data: { reelUrl: string; title: string; description: string }) {
+    return this.createReelWithEngagement({ ...data, likes: 0, views: 0 });
+  }
+
+  async createReelWithEngagement(data: {
+    reelUrl: string;
+    title: string;
+    description: string;
+    likes?: number;
+    views?: number;
+  }) {
     try {
       const db = this.firebaseService.getFirestore();
       const reelsCollection = collection(db, this.collectionName);
-      
+
+      // Duplicate check by reelUrl
+      const dupQuery = query(reelsCollection, where('reelUrl', '==', data.reelUrl));
+      const dupSnapshot = await getDocs(dupQuery);
+      if (!dupSnapshot.empty) {
+        return { error: true, msg: 'Reel already exists', data: null };
+      }
+
       const reelData = {
-        ...data,
-        views: 0,
+        reelUrl: data.reelUrl,
+        title: data.title,
+        description: data.description,
+        views: data.views ?? 0,
+        likes: data.likes ?? 0,
         createdAt: Timestamp.now(),
       };
 
-      await addDoc(reelsCollection, reelData);
+      const docRef = await addDoc(reelsCollection, reelData);
       return {
         error: false,
         msg: 'Reel created successfully',
-        data: { ...reelData, createdAt: reelData.createdAt.toDate() },
+        data: { id: docRef.id, ...reelData, createdAt: reelData.createdAt.toDate() },
       };
     } catch (error) {
       return {
@@ -41,7 +64,7 @@ export class ReelsService {
       const db = this.firebaseService.getFirestore();
       const reelsCollection = collection(db, this.collectionName);
       const reelsQuery = query(reelsCollection, orderBy('createdAt', 'desc'));
-      
+
       const querySnapshot = await getDocs(reelsQuery);
       const allData = querySnapshot.docs.map(doc => {
         const docData = doc.data();
@@ -51,6 +74,7 @@ export class ReelsService {
           title: docData.title,
           description: docData.description,
           views: docData.views || 0,
+          likes: docData.likes || 0,
           createdAt: docData.createdAt instanceof Timestamp ? docData.createdAt.toDate() : docData.createdAt,
         };
       });
@@ -69,7 +93,7 @@ export class ReelsService {
       // Pagination
       const parsedPage = Number(page) || 1;
       const parsedLimit = Number(limit) || 10;
-      
+
       const total = filteredData.length;
       const totalPages = Math.ceil(total / parsedLimit);
       const startIndex = (parsedPage - 1) * parsedLimit;
@@ -79,12 +103,7 @@ export class ReelsService {
         error: false,
         msg: 'Reels fetched successfully',
         data: paginatedData,
-        pagination: {
-          total,
-          page: parsedPage,
-          limit: parsedLimit,
-          totalPages,
-        },
+        pagination: { total, page: parsedPage, limit: parsedLimit, totalPages },
       };
     } catch (error) {
       return {
@@ -93,6 +112,38 @@ export class ReelsService {
         data: [],
         pagination: null,
       };
+    }
+  }
+
+  async likeReel(id: string) {
+    try {
+      const db = this.firebaseService.getFirestore();
+      const docRef = doc(db, this.collectionName, id);
+      await updateDoc(docRef, { likes: increment(1) });
+      const updated = await getDoc(docRef);
+      return {
+        error: false,
+        msg: 'Liked successfully',
+        data: { id, likes: updated.data()?.likes ?? 0 },
+      };
+    } catch (error) {
+      return { error: true, msg: error.message || 'Failed to like reel', data: null };
+    }
+  }
+
+  async viewReel(id: string) {
+    try {
+      const db = this.firebaseService.getFirestore();
+      const docRef = doc(db, this.collectionName, id);
+      await updateDoc(docRef, { views: increment(1) });
+      const updated = await getDoc(docRef);
+      return {
+        error: false,
+        msg: 'View counted',
+        data: { id, views: updated.data()?.views ?? 0 },
+      };
+    } catch (error) {
+      return { error: true, msg: error.message || 'Failed to count view', data: null };
     }
   }
 }

@@ -80,7 +80,10 @@ export class NewsScraperService {
 
       // Find all potential news links
       $('a').each((_, el) => {
-        const title = $(el).text().trim();
+        let title = $(el).text().trim();
+        // Remove literal image tags and other HTML if they accidentally leaked into text
+        title = title.replace(/<img[^>]*>/gi, '').replace(/<[^>]+>/g, '').trim();
+        
         let href = $(el).attr('href');
 
         // Lower threshold to catch more headlines
