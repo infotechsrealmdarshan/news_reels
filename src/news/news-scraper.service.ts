@@ -19,33 +19,39 @@ export class NewsScraperService {
 
   // Configuration for news sites - Using official homepages
   private readonly sources: ScraperConfig[] = [
-    // English
+    // English (8)
     { name: 'BBC News', url: 'https://www.bbc.com/news', language: NewsLanguage.ENGLISH, category: NewsCategory.ALL, scraperType: 'html' },
     { name: 'NDTV News', url: 'https://www.ndtv.com/latest', language: NewsLanguage.ENGLISH, category: NewsCategory.ALL, scraperType: 'html' },
     { name: 'The Hindu', url: 'https://www.thehindu.com/news/national/', language: NewsLanguage.ENGLISH, category: NewsCategory.ALL, scraperType: 'html' },
     { name: 'Indian Express', url: 'https://indianexpress.com/latest-news/', language: NewsLanguage.ENGLISH, category: NewsCategory.ALL, scraperType: 'html' },
     { name: 'Times of India', url: 'https://timesofindia.indiatimes.com/india', language: NewsLanguage.ENGLISH, category: NewsCategory.ALL, scraperType: 'html' },
     { name: 'Oneindia English', url: 'https://www.oneindia.com/india/', language: NewsLanguage.ENGLISH, category: NewsCategory.ALL, scraperType: 'html' },
+    { name: 'The Quint', url: 'https://www.thequint.com/news/india', language: NewsLanguage.ENGLISH, category: NewsCategory.ALL, scraperType: 'html' },
+    { name: 'Scroll.in', url: 'https://scroll.in/latest', language: NewsLanguage.ENGLISH, category: NewsCategory.ALL, scraperType: 'html' },
 
-    // Hindi
+    // Hindi (7)
     { name: 'ABP News', url: 'https://www.abplive.com/news/india', language: NewsLanguage.HINDI, category: NewsCategory.ALL, scraperType: 'html' },
     { name: 'Zee News Hindi', url: 'https://zeenews.india.com/hindi/india', language: NewsLanguage.HINDI, category: NewsCategory.ALL, scraperType: 'html' },
     { name: 'Jagran Hindi', url: 'https://www.jagran.com/news/national-news-hindi.html', language: NewsLanguage.HINDI, category: NewsCategory.ALL, scraperType: 'html' },
     { name: 'TV9 Bharatvarsh', url: 'https://www.tv9hindi.com/state', language: NewsLanguage.HINDI, category: NewsCategory.ALL, scraperType: 'html' },
+    { name: 'Amar Ujala', url: 'https://www.amarujala.com/india-news', language: NewsLanguage.HINDI, category: NewsCategory.ALL, scraperType: 'html' },
+    { name: 'Navbharat Times', url: 'https://navbharattimes.indiatimes.com/india/articlelist/1564454.cms', language: NewsLanguage.HINDI, category: NewsCategory.ALL, scraperType: 'html' },
+    { name: 'News18 Hindi', url: 'https://hindi.news18.com/news/nation/', language: NewsLanguage.HINDI, category: NewsCategory.ALL, scraperType: 'html' },
 
-    // Gujarati
+    // Gujarati (7)
     { name: 'Gujarat Samachar', url: 'https://www.gujaratsamachar.com/', language: NewsLanguage.GUJARATI, category: NewsCategory.ALL, scraperType: 'html' },
     { name: 'Sandesh News', url: 'https://sandesh.com/', language: NewsLanguage.GUJARATI, category: NewsCategory.ALL, scraperType: 'html' },
     { name: 'Divya Bhaskar', url: 'https://www.divyabhaskar.co.in/', language: NewsLanguage.GUJARATI, category: NewsCategory.ALL, scraperType: 'html' },
     { name: 'News18 Gujarati', url: 'https://gujarati.news18.com/', language: NewsLanguage.GUJARATI, category: NewsCategory.ALL, scraperType: 'html' },
     { name: 'I am Gujarat', url: 'https://www.iamgujarat.com/', language: NewsLanguage.GUJARATI, category: NewsCategory.ALL, scraperType: 'html' },
-    { name: 'ABP Asmita', url: 'https://gujarati.abplive.com/', language: NewsLanguage.GUJARATI, category: NewsCategory.ALL, scraperType: 'html' }
+    { name: 'ABP Asmita', url: 'https://gujarati.abplive.com/', language: NewsLanguage.GUJARATI, category: NewsCategory.ALL, scraperType: 'html' },
+    { name: 'VTV Gujarati', url: 'https://www.vtvgujarati.com/', language: NewsLanguage.GUJARATI, category: NewsCategory.ALL, scraperType: 'html' }
   ];
 
   constructor(private readonly newsService: NewsService) { }
 
   @Cron('0 0,6,12 * * *') // Run at 12:00 AM, 6:00 AM, and 12:00 PM daily
-  // @Cron('*/3 * * * *') // Run every 1 minutes
+
   async handleCron() {
     this.logger.debug('Starting Direct HTML News Scraping...');
     for (const source of this.sources) {
@@ -95,10 +101,23 @@ export class NewsScraperService {
       let addedCount = 0;
       // Increase limit to 40 articles per source to reach 1k/day target
       for (const article of articles.slice(0, 40)) {
-
         try {
           const detailData = await this.fetchArticleDetails(article.url);
-          if (!detailData || detailData.wordCount < 100 || detailData.images.length === 0) continue;
+          if (!detailData) {
+            this.logger.warn(`[SCRAPER] Failed to fetch details for ${article.url}`);
+            continue;
+          }
+
+          // More lenient word count for various languages
+          if (detailData.wordCount < 60) {
+            this.logger.debug(`[SCRAPER] Skipping ${article.title} - Word count too low (${detailData.wordCount})`);
+            continue;
+          }
+
+          if (detailData.images.length === 0) {
+            this.logger.debug(`[SCRAPER] Skipping ${article.title} - No valid images found`);
+            continue;
+          }
 
           const result = await this.newsService.createNews({
             title: article.title,
@@ -112,8 +131,13 @@ export class NewsScraperService {
             publishedAt: new Date(),
           });
 
-          if (!result.error) addedCount++;
+          if (!result.error) {
+            addedCount++;
+          } else if (result.msg !== 'News already exists') {
+            this.logger.error(`[SCRAPER] Error creating news: ${result.msg}`);
+          }
         } catch (e) {
+          this.logger.error(`[SCRAPER] Error processing article ${article.url}: ${e.message}`);
           continue;
         }
       }
@@ -133,32 +157,45 @@ export class NewsScraperService {
       });
       const $ = cheerio.load(data);
 
-      // Extract Images - High priority on og:image meta tag
       const images: string[] = [];
-      const ogImage = $('meta[property="og:image"]').attr('content');
-      if (ogImage && ogImage.startsWith('http')) {
-        images.push(ogImage);
+
+      // 1. Meta Tags (Highest Quality)
+      const metaImages = [
+        $('meta[property="og:image"]').attr('content'),
+        $('meta[name="twitter:image"]').attr('content'),
+        $('meta[name="thumbnail"]').attr('content')
+      ];
+
+      for (const img of metaImages) {
+        if (img && img.startsWith('http') && !images.includes(img)) {
+          images.push(img);
+        }
       }
 
-      // Look specifically for images inside article content first (Ultra-Strict)
-      const contentImages = $('article img, .main-img img, .story-content img, .article-body img, .post-content img, .v-article-content img');
+      // 2. Article Content Images
+      const imageSelectors = [
+        'article img', '.main-img img', '.story-content img', '.article-body img',
+        '.post-content img', '.v-article-content img', '.entry-content img',
+        'figure img', '.article_body img', '.story-desc img'
+      ];
+
+      const contentImages = $(imageSelectors.join(', '));
       contentImages.each((_, el) => {
-        const src = $(el).attr('data-src') || $(el).attr('data-lazy-src') || $(el).attr('data-original') || $(el).attr('src');
+        const src = $(el).attr('data-src') || $(el).attr('data-lazy-src') ||
+                    $(el).attr('data-original') || $(el).attr('src') ||
+                    $(el).attr('srcset')?.split(' ')[0];
+
         if (src && src.startsWith('http')) {
           const lowerSrc = src.toLowerCase();
-
-          // Bulletproof Noise Filter: No logos, icons, banners, branding, or social stubs
           const isNoise = /logo|banner|icon|avatar|placeholder|bg-|background|sprite|loader|ad-|advertise|default|thumb|stub|no-img|noimage|silhouette|pixel|spacer|transparent|150x|100x|50x|twitter|facebook|whatsapp|toi|abp|zee|news18|social|follow|subscribe|app-download|branding/.test(lowerSrc);
 
           if (!isNoise && !images.includes(src)) {
-            // Get dimensions if available, otherwise assume 400x200 for content images
             const width = parseInt($(el).attr('width') || '400');
             const height = parseInt($(el).attr('height') || '250');
-
-            // Final Safeguard: News photos are ALWAYS landscape but not super-thin banners.
-            // Ratio must be between 1.2 (almost square) and 2.2 (wide banner)
             const ratio = width / height;
-            if (width >= 250 && height >= 150 && ratio >= 1.2 && ratio <= 2.2) {
+
+            // More lenient ratio for mobile/various platforms
+            if (width >= 200 && height >= 120 && (isNaN(ratio) || (ratio >= 0.8 && ratio <= 2.5))) {
               images.push(src);
             }
           }
@@ -177,23 +214,27 @@ export class NewsScraperService {
         const content = $(selector);
         if (content.length > 0) {
           const paragraphs = content.find('p').map((_, p) => $(p).text().trim()).get();
-          const cleanParagraphs = paragraphs.filter(p => p.length > 20);
-          if (cleanParagraphs.length > 2) {
+          // Lenient filter for paragraphs
+          const cleanParagraphs = paragraphs.filter(p => p.length > 15);
+          if (cleanParagraphs.length > 1) {
             text = cleanParagraphs.join('\n\n');
             break;
           }
         }
       }
 
-      if (!text) {
+      if (!text || text.length < 100) {
+        // Fallback: search for any div with a lot of text or many paragraphs
         const paragraphs = $('p').map((_, p) => $(p).text().trim()).get();
-        text = paragraphs.filter(p => p.length > 100).slice(0, 15).join('\n\n');
+        text = paragraphs.filter(p => p.length > 40).slice(0, 20).join('\n\n');
       }
+
+      const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0;
 
       return {
         text,
         images: [...new Set(images)].slice(0, 8),
-        wordCount: text.split(/\s+/).length,
+        wordCount: wordCount,
       };
     } catch {
       return null;

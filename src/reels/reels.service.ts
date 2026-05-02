@@ -34,14 +34,15 @@ export class ReelsService {
     }
   }
 
-  async getReels() {
+  async getReels(params: { page?: number; limit?: number }) {
     try {
+      const { page = 1, limit = 10 } = params;
       const db = this.firebaseService.getFirestore();
       const reelsCollection = collection(db, this.collectionName);
       const reelsQuery = query(reelsCollection, orderBy('createdAt', 'desc'));
       
       const querySnapshot = await getDocs(reelsQuery);
-      const data = querySnapshot.docs.map(doc => {
+      const allData = querySnapshot.docs.map(doc => {
         const docData = doc.data();
         return {
           id: doc.id,
@@ -53,16 +54,31 @@ export class ReelsService {
         };
       });
 
+      // Pagination
+      const total = allData.length;
+      const totalPages = Math.ceil(total / limit);
+      const startIndex = (page - 1) * limit;
+      const paginatedData = allData.slice(startIndex, startIndex + limit);
+
       return {
         error: false,
         msg: 'Reels fetched successfully',
-        data: data,
+        data: paginatedData,
+        pagination: {
+          total,
+          page,
+          limit,
+          totalPages,
+          hasNextPage: page < totalPages,
+          hasPrevPage: page > 1,
+        },
       };
     } catch (error) {
       return {
         error: true,
         msg: error.message || 'Failed to fetch reels',
         data: [],
+        pagination: null,
       };
     }
   }

@@ -1,7 +1,8 @@
-import { Controller, Post, Get, Body } from '@nestjs/common';
+import { Controller, Post, Get, Body, Query } from '@nestjs/common';
 import { ReelsService } from './reels.service';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { CreateReelDto } from './dto/create-reel.dto';
+import { GetReelsDto } from './dto/get-reels.dto';
 
 @ApiTags('reels')
 @Controller('reels')
@@ -16,9 +17,9 @@ export class ReelsController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'Get all reels sorted by latest-first' })
-  @ApiResponse({ status: 200, description: 'Return all reels.' })
-  async findAll() {
-    return this.reelsService.getReels();
+  @ApiOperation({ summary: 'Get reels with pagination' })
+  @ApiResponse({ status: 200, description: 'Return paginated reels.' })
+  async findAll(@Query() query: GetReelsDto) {
+    return this.reelsService.getReels(query);
   }
 }
