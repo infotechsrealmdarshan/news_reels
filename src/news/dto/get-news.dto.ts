@@ -14,6 +14,13 @@ export class GetNewsDto {
   category?: NewsCategory;
 
   @ApiPropertyOptional({
+    description: 'Search by title or description',
+    example: 'Modi',
+  })
+  @IsOptional()
+  search?: string;
+
+  @ApiPropertyOptional({
     description: 'Page number (1-based)',
     example: 1,
     default: 1,

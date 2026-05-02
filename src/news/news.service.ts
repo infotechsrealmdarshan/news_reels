@@ -89,6 +89,7 @@ export class NewsService {
       const allDocs = querySnapshot.docs.map((doc) => {
         const docData = doc.data();
         return {
+          id: doc.id,
           title: docData.title,
           imageLink: docData.imageLink,
           imageLinks: docData.imageLinks || [docData.imageLink],
@@ -101,11 +102,22 @@ export class NewsService {
         };
       });
 
+      // Search filter
+      let filteredDocs = allDocs;
+      if (params.search) {
+        const searchTerm = params.search.toLowerCase();
+        filteredDocs = allDocs.filter(
+          (doc) =>
+            (doc.title && doc.title.toLowerCase().includes(searchTerm)) ||
+            (doc.description && doc.description.toLowerCase().includes(searchTerm)),
+        );
+      }
+
       // Pagination
-      const total = allDocs.length;
+      const total = filteredDocs.length;
       const totalPages = Math.ceil(total / limit);
       const startIndex = (page - 1) * limit;
-      const paginatedDocs = allDocs.slice(startIndex, startIndex + limit);
+      const paginatedDocs = filteredDocs.slice(startIndex, startIndex + limit);
 
       return {
         error: false,

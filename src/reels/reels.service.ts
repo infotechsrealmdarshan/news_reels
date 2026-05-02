@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { FirebaseService } from '../firebase/firebase.service';
 import { collection, addDoc, getDocs, query, orderBy, Timestamp } from 'firebase/firestore';
+import { GetReelsDto } from './dto/get-reels.dto';
 
 @Injectable()
 export class ReelsService {
@@ -34,7 +35,7 @@ export class ReelsService {
     }
   }
 
-  async getReels(params: { page?: number; limit?: number }) {
+  async getReels(params: GetReelsDto) {
     try {
       const { page = 1, limit = 10 } = params;
       const db = this.firebaseService.getFirestore();
@@ -54,11 +55,22 @@ export class ReelsService {
         };
       });
 
+      // Search filter
+      let filteredData = allData;
+      if (params.search) {
+        const searchTerm = params.search.toLowerCase();
+        filteredData = allData.filter(
+          (reel) =>
+            (reel.title && reel.title.toLowerCase().includes(searchTerm)) ||
+            (reel.description && reel.description.toLowerCase().includes(searchTerm)),
+        );
+      }
+
       // Pagination
-      const total = allData.length;
+      const total = filteredData.length;
       const totalPages = Math.ceil(total / limit);
       const startIndex = (page - 1) * limit;
-      const paginatedData = allData.slice(startIndex, startIndex + limit);
+      const paginatedData = filteredData.slice(startIndex, startIndex + limit);
 
       return {
         error: false,

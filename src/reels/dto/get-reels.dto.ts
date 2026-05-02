@@ -15,6 +15,13 @@ export class GetReelsDto {
   page?: number = 1;
 
   @ApiPropertyOptional({
+    description: 'Search by title or description',
+    example: 'funny',
+  })
+  @IsOptional()
+  search?: string;
+
+  @ApiPropertyOptional({
     description: 'Number of reels per page',
     example: 10,
     default: 10,

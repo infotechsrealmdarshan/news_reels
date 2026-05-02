@@ -51,6 +51,12 @@ export class NewsController {
     type: Number,
     description: 'Items per page (default: 10)',
   })
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    type: String,
+    description: 'Search by title or description',
+  })
   async findAll(@Query() query: GetNewsDto & { language?: NewsLanguage }) {
     return this.newsService.getNews(query);
   }
