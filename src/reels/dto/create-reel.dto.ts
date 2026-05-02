@@ -1,28 +1,30 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNotEmpty } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsUrl } from 'class-validator';
 
 export class CreateReelDto {
-  @ApiProperty({
-    description: 'The URL of the reel video',
-    example: 'https://example.com/reel.mp4',
-  })
+  @ApiProperty({ example: 'https://v.redd.it/xyz.mp4' })
   @IsString()
   @IsNotEmpty()
+  @IsUrl()
   reelUrl: string;
 
-  @ApiProperty({
-    description: 'The title of the reel',
-    example: 'Amazing Reel',
-  })
+  @ApiProperty({ example: 'Amazing viral video' })
   @IsString()
   @IsNotEmpty()
   title: string;
 
-  @ApiProperty({
-    description: 'The description of the reel',
-    example: 'Check out this cool content!',
-  })
+  @ApiProperty({ example: 'Check out this amazing video from Reddit' })
   @IsString()
   @IsNotEmpty()
   description: string;
+
+  @ApiProperty({ example: 'https://preview.redd.it/xyz.jpg', required: false })
+  @IsString()
+  @IsOptional()
+  thumbnailUrl?: string;
+
+  @ApiProperty({ example: 'https://www.redditstatic.com/avatar.png', required: false })
+  @IsString()
+  @IsOptional()
+  profileImage?: string;
 }

@@ -10,7 +10,7 @@ import { GetReelsDto } from './dto/get-reels.dto';
 export class ReelsService {
   private collectionName = 'reels';
 
-  constructor(private firebaseService: FirebaseService) {}
+  constructor(private firebaseService: FirebaseService) { }
 
   async createReel(data: { reelUrl: string; title: string; description: string }) {
     return this.createReelWithEngagement({ ...data, likes: 0, views: 0 });
@@ -20,6 +20,8 @@ export class ReelsService {
     reelUrl: string;
     title: string;
     description: string;
+    thumbnailUrl?: string;
+    profileImage?: string;
     likes?: number;
     views?: number;
   }) {
@@ -38,6 +40,8 @@ export class ReelsService {
         reelUrl: data.reelUrl,
         title: data.title,
         description: data.description,
+        thumbnailUrl: data.thumbnailUrl || '',
+        profileImage: data.profileImage || '',
         views: data.views ?? 0,
         likes: data.likes ?? 0,
         createdAt: Timestamp.now(),
@@ -73,6 +77,7 @@ export class ReelsService {
           reelUrl: docData.reelUrl,
           title: docData.title,
           description: docData.description,
+          thumbnailUrl: docData.thumbnailUrl || '',
           views: docData.views || 0,
           likes: docData.likes || 0,
           createdAt: docData.createdAt instanceof Timestamp ? docData.createdAt.toDate() : docData.createdAt,

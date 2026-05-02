@@ -7,6 +7,8 @@ interface ScrapedReel {
   title: string;
   description: string;
   reelUrl: string;
+  thumbnailUrl: string;
+  profileImage: string;
   source: string;
 }
 
@@ -47,12 +49,12 @@ export class ReelsScraperService {
 
   @Cron('0 */5 * * *') // Every 5 hours
   async handleCron() {
-    this.logger.log('[REELS SCRAPER] Scraper cron triggered...');
-    await this.scrapeViralReels();
+    this.logger.log('[REELS SCRAPER] Scraper cron triggered (target 500)...');
+    await this.scrapeViralReels(500);
   }
 
-  async scrapeViralReels(): Promise<number> {
-    const TARGET_MAX = 70;
+  async scrapeViralReels(targetMax: number = 500): Promise<number> {
+    const TARGET_MAX = targetMax;
 
     // Fetch from all subreddits in parallel (smaller batch to avoid 429)
     const batches = this.chunkArray(VIDEO_SUBREDDITS, 4);
@@ -86,8 +88,10 @@ export class ReelsScraperService {
           reelUrl: reel.reelUrl,
           title: reel.title,
           description: reel.description,
-          likes: 0,   // Start at 0 — users like via the app
-          views: 0,   // Start at 0 — users generate views via the app
+          thumbnailUrl: reel.thumbnailUrl,
+          profileImage: reel.profileImage,
+          likes: 0,
+          views: 0,
         });
 
         if (!result.error) {
@@ -111,7 +115,7 @@ export class ReelsScraperService {
   private async fetchSubredditPosts(subreddit: string): Promise<ScrapedReel[]> {
     try {
       const { data } = await axios.get(
-        `https://www.reddit.com/r/${subreddit}/top.json?t=week&limit=50&raw_json=1`,
+        `https://www.reddit.com/r/${subreddit}/top.json?t=week&limit=100&raw_json=1`,
         {
           headers: {
             'User-Agent': 'Mozilla/5.0 (compatible; NewsReelsScraper/1.0)',
@@ -136,6 +140,9 @@ export class ReelsScraperService {
         const videoUrl = this.extractVideoUrl(p);
         if (!videoUrl) continue;
 
+        const thumbnailUrl = this.extractThumbnailUrl(p);
+        const profileImage = `https://www.redditstatic.com/avatars/defaults/v2/avatar_default_${Math.floor(Math.random() * 8)}.png`;
+
         const title = this.cleanText(p.title);
         if (!title || title.length < 5) continue;
 
@@ -145,6 +152,8 @@ export class ReelsScraperService {
           title,
           description: desc,
           reelUrl: videoUrl,
+          thumbnailUrl,
+          profileImage,
           source: `r/${subreddit}`,
         });
       }
@@ -183,6 +192,22 @@ export class ReelsScraperService {
     }
 
     return null;
+  }
+
+  private extractThumbnailUrl(p: any): string {
+    // Try to get high-res preview image
+    const preview = p.preview?.images?.[0]?.source?.url;
+    if (preview) {
+      // Fix Reddit's URL encoding
+      return preview.replace(/&amp;/g, '&');
+    }
+
+    // Fallback to thumbnail
+    if (p.thumbnail && p.thumbnail.startsWith('http')) {
+      return p.thumbnail;
+    }
+
+    return '';
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────────
