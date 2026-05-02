@@ -67,10 +67,13 @@ export class ReelsService {
       }
 
       // Pagination
+      const parsedPage = Number(page) || 1;
+      const parsedLimit = Number(limit) || 10;
+      
       const total = filteredData.length;
-      const totalPages = Math.ceil(total / limit);
-      const startIndex = (page - 1) * limit;
-      const paginatedData = filteredData.slice(startIndex, startIndex + limit);
+      const totalPages = Math.ceil(total / parsedLimit);
+      const startIndex = (parsedPage - 1) * parsedLimit;
+      const paginatedData = filteredData.slice(startIndex, startIndex + parsedLimit);
 
       return {
         error: false,
@@ -78,11 +81,9 @@ export class ReelsService {
         data: paginatedData,
         pagination: {
           total,
-          page,
-          limit,
+          page: parsedPage,
+          limit: parsedLimit,
           totalPages,
-          hasNextPage: page < totalPages,
-          hasPrevPage: page > 1,
         },
       };
     } catch (error) {
