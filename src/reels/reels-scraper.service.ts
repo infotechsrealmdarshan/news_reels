@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import axios from 'axios';
 import { ReelsService } from './reels.service';
@@ -12,29 +12,36 @@ interface ScrapedReel {
   source: string;
 }
 
-// ─── 35+ Viral Video Subreddits ───────────────────────────────────────────────
+// ─── 50+ Viral Video Subreddits ───────────────────────────────────────────────
 const VIDEO_SUBREDDITS = [
   // Satisfying / Amazing
   'nextfuckinglevel', 'BeAmazed', 'oddlysatisfying', 'damnthatsinteresting',
   'interestingasfuck', 'woahdude', 'NatureIsFuckingLit', 'MediaSynthesis',
+  'blackmagicfuckery', 'BetterEveryLoop',
 
-  // Funny / Fail
+  // Funny / Fail / Cringe
   'WatchPeopleDieInside', 'instant_regret', 'funny', 'Unexpected',
   'holdmybeer', 'PeopleFailing', 'youseeingthisshit', 'AbruptChaos',
+  'tiktokcringe', 'maybemaybemaybe', 'nonononoyes', 'yesyesyesno',
+  'therewasanattempt', 'facepalm', 'mildlyinfuriating', 'DumbWaystoDie',
 
   // Animals
   'AnimalsBeingBros', 'AnimalsBeingJerks', 'WhatsWrongWithYourCat',
-  'WhatsWrongWithYourDog', 'aww', 'Eyebleach', 'likeus',
+  'WhatsWrongWithYourDog', 'aww', 'Eyebleach', 'likeus', 'FunnyAnimals',
+  'StartledCats', 'StoppedWorking',
 
-  // Wholesome
+  // Wholesome / Life
   'HumansBeingBros', 'MadeMeSmile', 'ContagiousLaughter', 'UpliftingNews',
+  'DailyDoseOfReddit', 'ViralVideos', 'PublicFreakout', 'Wellthatsucks', 'SweatyPalms',
 
-  // Shocking / Drama
-  'PublicFreakout', 'Wellthatsucks', 'SweatyPalms', 'ANormalDayInRussia',
-  'therewasanattempt', 'facepalm', 'mildlyinfuriating',
+  // Skills / Sports / Gaming
+  'gifs', 'JusticeServed', 'Damnthatsinteresting', 'GamingGifs',
+  'SlyGifs', 'PhysicsGifs', 'EducationalGifs'
+];
 
-  // Skills / Sports
-  'gifs', 'JusticeServed', 'Damnthatsinteresting',
+const FORBIDDEN_KEYWORDS = [
+  'porn', 'sex', 'xxx', 'naked', 'adult', 'nsfw', 'erotic', 'lingerie', 
+  'boobs', 'dick', 'pussy', 'vagina', 'fuck', 'shit', 'asshole', 'blowjob'
 ];
 
 // Engagement thresholds — viral filter
@@ -42,10 +49,14 @@ const MIN_LIKES = 10_000;   // 10k+ upvotes
 const MIN_VIEWS = 50_000;   // 50k+ views
 
 @Injectable()
-export class ReelsScraperService {
+export class ReelsScraperService implements OnModuleInit {
   private readonly logger = new Logger(ReelsScraperService.name);
 
   constructor(private readonly reelsService: ReelsService) { }
+
+  onModuleInit() {
+    this.logger.log('Reels Scraper Service Initialized. Cron set for every 5 hours (Asia/Kolkata).');
+  }
 
   @Cron('0 */5 * * *', { timeZone: 'Asia/Kolkata' }) // Every 5 hours in IST
   async handleCron() {
@@ -131,6 +142,20 @@ export class ReelsScraperService {
       for (const { data: p } of posts) {
         if (p.over_18) continue;
 
+        const title = this.cleanText(p.title);
+        const desc = (p.selftext?.trim() || "").toLowerCase();
+        const lowerTitle = title.toLowerCase();
+
+        // Strict Keyword Filter
+        const hasForbiddenKeyword = FORBIDDEN_KEYWORDS.some(word => 
+          lowerTitle.includes(word) || desc.includes(word)
+        );
+        
+        if (hasForbiddenKeyword) {
+          this.logger.debug(`[REELS SCRAPER] 🔞 Skipping restricted content: ${title.slice(0, 30)}...`);
+          continue;
+        }
+
         const likes = p.ups || 0;
         const views = p.view_count || 0;
 
@@ -143,14 +168,13 @@ export class ReelsScraperService {
         const thumbnailUrl = this.extractThumbnailUrl(p);
         const profileImage = `https://www.redditstatic.com/avatars/defaults/v2/avatar_default_${Math.floor(Math.random() * 8)}.png`;
 
-        const title = this.cleanText(p.title);
         if (!title || title.length < 5) continue;
 
-        const desc = (p.selftext?.trim() || `Viral reel from r/${p.subreddit} — ${likes.toLocaleString()} likes`).slice(0, 500);
+        const finalDesc = (desc || `Viral reel from r/${p.subreddit} — ${likes.toLocaleString()} likes`).slice(0, 500);
 
         viral.push({
           title,
-          description: desc,
+          description: finalDesc,
           reelUrl: videoUrl,
           thumbnailUrl,
           profileImage,
@@ -171,24 +195,39 @@ export class ReelsScraperService {
     const redditVideo =
       p.media?.reddit_video?.fallback_url ||
       p.secure_media?.reddit_video?.fallback_url;
-    if (redditVideo) return redditVideo.split('?')[0];
+    
+    let videoUrl = null;
+    if (redditVideo) {
+      videoUrl = redditVideo.split('?')[0];
+    } else {
+      // 2. Preview video
+      const previewVideo = p.preview?.reddit_video_preview?.fallback_url;
+      if (previewVideo) {
+        videoUrl = previewVideo.split('?')[0];
+      } else {
+        // 3. Direct video URLs
+        const url = p.url || '';
+        // Only allow URLs that explicitly end with .mp4 or are from known high-quality video hosts
+        if (
+          url.toLowerCase().endsWith('.mp4') ||
+          url.includes('v.redd.it') ||
+          url.includes('streamable.com')
+        ) {
+          videoUrl = url;
+        }
+      }
+    }
 
-    // 2. Preview video
-    const previewVideo = p.preview?.reddit_video_preview?.fallback_url;
-    if (previewVideo) return previewVideo.split('?')[0];
-
-    // 3. Direct video/gif URLs
-    const url = p.url || '';
-    if (
-      url.endsWith('.mp4') ||
-      url.endsWith('.gifv') ||
-      url.endsWith('.gif') ||
-      url.includes('v.redd.it') ||
-      url.includes('gfycat.com') ||
-      url.includes('streamable.com') ||
-      (url.includes('imgur.com') && (url.includes('.mp4') || url.includes('.gifv')))
-    ) {
-      return url;
+    // Final Restriction: Ensure the URL is not a GIF and is likely an MP4
+    if (videoUrl) {
+      const lowerUrl = videoUrl.toLowerCase();
+      if (lowerUrl.includes('.gif') || lowerUrl.includes('.gifv')) {
+        return null;
+      }
+      // If it doesn't have an extension, it's likely a Reddit dash/hls stream which is fine, 
+      // but if the user is STRICT about .mp4 extension, we can check that.
+      // Usually users mean "real video, not gif".
+      return videoUrl;
     }
 
     return null;

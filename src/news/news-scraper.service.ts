@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
@@ -14,7 +14,7 @@ interface ScraperConfig {
 }
 
 @Injectable()
-export class NewsScraperService {
+export class NewsScraperService implements OnModuleInit {
   private readonly logger = new Logger(NewsScraperService.name);
 
   // Configuration for news sites - Using official homepages
@@ -28,8 +28,10 @@ export class NewsScraperService {
     { name: 'Oneindia English', url: 'https://www.oneindia.com/india/', language: NewsLanguage.ENGLISH, category: NewsCategory.ALL, scraperType: 'html' },
     { name: 'The Quint', url: 'https://www.thequint.com/news/india', language: NewsLanguage.ENGLISH, category: NewsCategory.ALL, scraperType: 'html' },
     { name: 'Scroll.in', url: 'https://scroll.in/latest', language: NewsLanguage.ENGLISH, category: NewsCategory.ALL, scraperType: 'html' },
+    { name: 'The Print', url: 'https://theprint.in/category/india/', language: NewsLanguage.ENGLISH, category: NewsCategory.ALL, scraperType: 'html' },
+    { name: 'Firstpost', url: 'https://www.firstpost.com/category/india', language: NewsLanguage.ENGLISH, category: NewsCategory.ALL, scraperType: 'html' },
 
-    // Hindi (7)
+    // Hindi (8)
     { name: 'ABP News', url: 'https://www.abplive.com/news/india', language: NewsLanguage.HINDI, category: NewsCategory.ALL, scraperType: 'html' },
     { name: 'Zee News Hindi', url: 'https://zeenews.india.com/hindi/india', language: NewsLanguage.HINDI, category: NewsCategory.ALL, scraperType: 'html' },
     { name: 'Jagran Hindi', url: 'https://www.jagran.com/news/national-news-hindi.html', language: NewsLanguage.HINDI, category: NewsCategory.ALL, scraperType: 'html' },
@@ -37,18 +39,24 @@ export class NewsScraperService {
     { name: 'Amar Ujala', url: 'https://www.amarujala.com/india-news', language: NewsLanguage.HINDI, category: NewsCategory.ALL, scraperType: 'html' },
     { name: 'Navbharat Times', url: 'https://navbharattimes.indiatimes.com/india/articlelist/1564454.cms', language: NewsLanguage.HINDI, category: NewsCategory.ALL, scraperType: 'html' },
     { name: 'News18 Hindi', url: 'https://hindi.news18.com/news/nation/', language: NewsLanguage.HINDI, category: NewsCategory.ALL, scraperType: 'html' },
+    { name: 'Punjab Kesari', url: 'https://www.punjabkesari.in/national', language: NewsLanguage.HINDI, category: NewsCategory.ALL, scraperType: 'html' },
 
-    // Gujarati (7)
+    // Gujarati (8)
     { name: 'Gujarat Samachar', url: 'https://www.gujaratsamachar.com/', language: NewsLanguage.GUJARATI, category: NewsCategory.ALL, scraperType: 'html' },
     { name: 'Sandesh News', url: 'https://sandesh.com/', language: NewsLanguage.GUJARATI, category: NewsCategory.ALL, scraperType: 'html' },
     { name: 'Divya Bhaskar', url: 'https://www.divyabhaskar.co.in/', language: NewsLanguage.GUJARATI, category: NewsCategory.ALL, scraperType: 'html' },
     { name: 'News18 Gujarati', url: 'https://gujarati.news18.com/', language: NewsLanguage.GUJARATI, category: NewsCategory.ALL, scraperType: 'html' },
     { name: 'I am Gujarat', url: 'https://www.iamgujarat.com/', language: NewsLanguage.GUJARATI, category: NewsCategory.ALL, scraperType: 'html' },
     { name: 'ABP Asmita', url: 'https://gujarati.abplive.com/', language: NewsLanguage.GUJARATI, category: NewsCategory.ALL, scraperType: 'html' },
-    { name: 'VTV Gujarati', url: 'https://www.vtvgujarati.com/', language: NewsLanguage.GUJARATI, category: NewsCategory.ALL, scraperType: 'html' }
+    { name: 'VTV Gujarati', url: 'https://www.vtvgujarati.com/', language: NewsLanguage.GUJARATI, category: NewsCategory.ALL, scraperType: 'html' },
+    { name: 'GSTV News', url: 'https://www.gstv.in/', language: NewsLanguage.GUJARATI, category: NewsCategory.ALL, scraperType: 'html' }
   ];
 
   constructor(private readonly newsService: NewsService) { }
+
+  onModuleInit() {
+    this.logger.log('News Scraper Service Initialized. Cron set for 12AM, 6AM, 12PM, 6PM (Asia/Kolkata).');
+  }
 
   @Cron('0 0,6,12,18 * * *', { timeZone: 'Asia/Kolkata' }) // Every 6 hours in IST
   async handleCron() {
@@ -145,6 +153,7 @@ export class NewsScraperService {
       }
       return addedCount;
     } catch (error) {
+      this.logger.error(`[HTML SCRAPER ERROR] Failed to scrape ${source.name}: ${error.message}`);
       return 0;
     }
   }
