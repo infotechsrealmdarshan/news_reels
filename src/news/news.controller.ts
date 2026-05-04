@@ -1,5 +1,6 @@
 import { Controller, Post, Get, Body, Query, Param } from '@nestjs/common';
 import { NewsService } from './news.service';
+import { NewsScraperService } from './news-scraper.service';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiParam } from '@nestjs/swagger';
 import { CreateNewsDto, NewsCategory, NewsLanguage } from './dto/create-news.dto';
 import { GetNewsDto } from './dto/get-news.dto';
@@ -7,7 +8,20 @@ import { GetNewsDto } from './dto/get-news.dto';
 @ApiTags('news')
 @Controller('news')
 export class NewsController {
-  constructor(private readonly newsService: NewsService) {}
+  constructor(
+    private readonly newsService: NewsService,
+    private readonly newsScraperService: NewsScraperService,
+  ) {}
+
+  @Post('scrape')
+  @ApiOperation({ summary: 'Manually trigger news scraping' })
+  @ApiResponse({ status: 200, description: 'Scraping triggered.' })
+  async triggerScrape() {
+    // Run in background
+    this.newsScraperService.handleCron();
+    return { error: false, msg: 'News scraping started in background' };
+  }
+
 
   @Post()
   @ApiOperation({ summary: 'Add a new news item' })

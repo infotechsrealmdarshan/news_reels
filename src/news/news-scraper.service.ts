@@ -50,8 +50,7 @@ export class NewsScraperService {
 
   constructor(private readonly newsService: NewsService) { }
 
-  @Cron('0 0,6,12 * * *') // Run at 12:00 AM, 6:00 AM, and 12:00 PM daily
-
+  @Cron('0 0,6,12,18 * * *', { timeZone: 'Asia/Kolkata' }) // Every 6 hours in IST
   async handleCron() {
     this.logger.debug('Starting Direct HTML News Scraping...');
     for (const source of this.sources) {

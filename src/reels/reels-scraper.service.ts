@@ -47,7 +47,7 @@ export class ReelsScraperService {
 
   constructor(private readonly reelsService: ReelsService) { }
 
-  @Cron('0 */5 * * *') // Every 5 hours
+  @Cron('0 */5 * * *', { timeZone: 'Asia/Kolkata' }) // Every 5 hours in IST
   async handleCron() {
     this.logger.log('[REELS SCRAPER] Scraper cron triggered (target 500)...');
     await this.scrapeViralReels(500);
