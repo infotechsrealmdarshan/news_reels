@@ -107,14 +107,17 @@ export class ReelsService {
         );
       }
 
+      // Interleave reels by category to avoid same category consecutively
+      const interleavedData = this.interleaveByCategory(filteredData);
+
       // Pagination
       const parsedPage = Number(page) || 1;
       const parsedLimit = Number(limit) || 10;
 
-      const total = filteredData.length;
+      const total = interleavedData.length;
       const totalPages = Math.ceil(total / parsedLimit);
       const startIndex = (parsedPage - 1) * parsedLimit;
-      const paginatedData = filteredData.slice(startIndex, startIndex + parsedLimit);
+      const paginatedData = interleavedData.slice(startIndex, startIndex + parsedLimit);
 
       return {
         error: false,
@@ -162,5 +165,36 @@ export class ReelsService {
     } catch (error) {
       return { error: true, msg: error.message || 'Failed to count view', data: null };
     }
+  }
+
+  private interleaveByCategory(reels: any[]): any[] {
+    if (reels.length === 0) return [];
+
+    // Group reels by category
+    const categoryMap = new Map<string, any[]>();
+    for (const reel of reels) {
+      const category = reel.category || 'uncategorized';
+      if (!categoryMap.has(category)) {
+        categoryMap.set(category, []);
+      }
+      categoryMap.get(category)!.push(reel);
+    }
+
+    const categories = Array.from(categoryMap.keys());
+    const interleaved: any[] = [];
+    let index = 0;
+
+    // Round-robin interleaving
+    while (interleaved.length < reels.length) {
+      for (const category of categories) {
+        const categoryReels = categoryMap.get(category)!;
+        if (index < categoryReels.length) {
+          interleaved.push(categoryReels[index]);
+        }
+      }
+      index++;
+    }
+
+    return interleaved;
   }
 }
