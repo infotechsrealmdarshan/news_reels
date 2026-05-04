@@ -191,14 +191,21 @@ export class ReelsScraperService implements OnModuleInit {
   }
 
   private extractVideoUrl(p: any): string | null {
-    // 1. Reddit-hosted video
+    // 1. Reddit-hosted video - Prioritize HLS (m3u8) for combined Audio+Video
     const redditVideo =
+      p.media?.reddit_video?.hls_url ||
+      p.secure_media?.reddit_video?.hls_url ||
       p.media?.reddit_video?.fallback_url ||
       p.secure_media?.reddit_video?.fallback_url;
     
     let videoUrl = null;
     if (redditVideo) {
       videoUrl = redditVideo.split('?')[0];
+      // If it's a DASH link, we try to see if HLS is available by swapping the end
+      if (videoUrl.includes('DASH_')) {
+        const baseUrl = videoUrl.substring(0, videoUrl.lastIndexOf('/'));
+        videoUrl = `${baseUrl}/HLSPlaylist.m3u8`;
+      }
     } else {
       // 2. Preview video
       const previewVideo = p.preview?.reddit_video_preview?.fallback_url;
