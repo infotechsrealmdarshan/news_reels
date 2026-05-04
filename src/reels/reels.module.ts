@@ -10,4 +10,4 @@ import { FirebaseModule } from '../firebase/firebase.module';
   providers: [ReelsService, ReelsScraperService],
   exports: [ReelsService],
 })
-export class ReelsModule {}
+export class ReelsModule { }

@@ -1,6 +1,6 @@
 import { Controller, Post, Get, Body, Query, Param } from '@nestjs/common';
 import { ReelsService } from './reels.service';
-import { ReelsScraperService } from './reels-scraper.service';
+import { ReelsScraperService, CATEGORIES } from './reels-scraper.service';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiParam } from '@nestjs/swagger';
 import { CreateReelDto } from './dto/create-reel.dto';
 import { GetReelsDto } from './dto/get-reels.dto';
@@ -11,14 +11,25 @@ export class ReelsController {
   constructor(
     private readonly reelsService: ReelsService,
     private readonly reelsScraperService: ReelsScraperService,
-  ) {}
+  ) { }
+
+  @Get('categories')
+  @ApiOperation({ summary: 'Get all available reel categories' })
+  @ApiResponse({ status: 200, description: 'Return all categories.' })
+  getCategories() {
+    return {
+      error: false,
+      msg: 'Categories fetched successfully',
+      data: CATEGORIES,
+    };
+  }
 
   @Post('scrape')
-  @ApiOperation({ summary: 'Manually trigger viral reels scraping' })
+  @ApiOperation({ summary: 'Manually trigger YouTube Shorts scraping' })
   @ApiResponse({ status: 200, description: 'Scraping triggered.' })
   async triggerScrape() {
-    this.reelsScraperService.scrapeViralReels();
-    return { error: false, msg: 'Reels scraping started in background' };
+    this.reelsScraperService.scrapeYoutubeShorts();
+    return { error: false, msg: 'YouTube Shorts scraping started in background' };
   }
 
   @Post()

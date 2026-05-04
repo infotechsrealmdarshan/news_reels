@@ -12,14 +12,16 @@ export class ReelsService {
 
   constructor(private firebaseService: FirebaseService) { }
 
-  async createReel(data: { reelUrl: string; title: string; description: string }) {
+  async createReel(data: { videoId: string; reelUrl: string; title: string; description: string; category?: string; language?: string; }) {
     return this.createReelWithEngagement({ ...data, likes: 0, views: 0 });
   }
 
   async createReelWithEngagement(data: {
+    videoId: string;
     reelUrl: string;
     title: string;
     description: string;
+    category?: string;
     thumbnailUrl?: string;
     profileImage?: string;
     likes?: number;
@@ -29,17 +31,19 @@ export class ReelsService {
       const db = this.firebaseService.getFirestore();
       const reelsCollection = collection(db, this.collectionName);
 
-      // Duplicate check by reelUrl
-      const dupQuery = query(reelsCollection, where('reelUrl', '==', data.reelUrl));
+      // Duplicate check by videoId
+      const dupQuery = query(reelsCollection, where('videoId', '==', data.videoId));
       const dupSnapshot = await getDocs(dupQuery);
       if (!dupSnapshot.empty) {
         return { error: true, msg: 'Reel already exists', data: null };
       }
 
       const reelData = {
+        videoId: data.videoId,
         reelUrl: data.reelUrl,
         title: data.title,
         description: data.description,
+        category: data.category || '',
         thumbnailUrl: data.thumbnailUrl || '',
         profileImage: data.profileImage || '',
         views: data.views ?? 0,
@@ -74,9 +78,11 @@ export class ReelsService {
         const docData = doc.data();
         return {
           id: doc.id,
+          videoId: docData.videoId,
           reelUrl: docData.reelUrl,
           title: docData.title,
           description: docData.description,
+          category: docData.category,
           thumbnailUrl: docData.thumbnailUrl || '',
           views: docData.views || 0,
           likes: docData.likes || 0,
@@ -84,14 +90,20 @@ export class ReelsService {
         };
       });
 
-      // Search filter
+      // Search and Filter
       let filteredData = allData;
       if (params.search) {
         const searchTerm = params.search.toLowerCase();
-        filteredData = allData.filter(
+        filteredData = filteredData.filter(
           (reel) =>
             (reel.title && reel.title.toLowerCase().includes(searchTerm)) ||
             (reel.description && reel.description.toLowerCase().includes(searchTerm)),
+        );
+      }
+      if (params.category) {
+        const categorySearch = params.category.toLowerCase();
+        filteredData = filteredData.filter(
+          (reel) => reel.category && reel.category.toLowerCase() === categorySearch
         );
       }
 

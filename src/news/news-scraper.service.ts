@@ -90,7 +90,7 @@ export class NewsScraperService implements OnModuleInit {
         let title = $(el).text().trim();
         // Remove literal image tags and other HTML if they accidentally leaked into text
         title = title.replace(/<img[^>]*>/gi, '').replace(/<[^>]+>/g, '').trim();
-        
+
         let href = $(el).attr('href');
 
         // Lower threshold to catch more headlines
@@ -193,8 +193,8 @@ export class NewsScraperService implements OnModuleInit {
       const contentImages = $(imageSelectors.join(', '));
       contentImages.each((_, el) => {
         const src = $(el).attr('data-src') || $(el).attr('data-lazy-src') ||
-                    $(el).attr('data-original') || $(el).attr('src') ||
-                    $(el).attr('srcset')?.split(' ')[0];
+          $(el).attr('data-original') || $(el).attr('src') ||
+          $(el).attr('srcset')?.split(' ')[0];
 
         if (src && src.startsWith('http')) {
           const lowerSrc = src.toLowerCase();
