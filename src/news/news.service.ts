@@ -1,18 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { FirebaseService } from '../firebase/firebase.service';
-import {
-  collection,
-  addDoc,
-  getDocs,
-  query,
-  orderBy,
-  where,
-  Timestamp,
-  doc,
-  updateDoc,
-  increment,
-  getDoc,
-} from 'firebase/firestore';
+import { GoogleSheetService } from '../google-sheet/google-sheet.service';
+import { isAdultContent } from '../common/content-filter';
 import { NewsCategory, NewsLanguage, CreateNewsDto } from './dto/create-news.dto';
 import { GetNewsDto } from './dto/get-news.dto';
 
@@ -20,48 +8,41 @@ import { GetNewsDto } from './dto/get-news.dto';
 export class NewsService {
   private collectionName = 'news';
 
-  constructor(private firebaseService: FirebaseService) {}
+  constructor(private readonly sheet: GoogleSheetService) {}
 
   async createNews(data: CreateNewsDto) {
     try {
-      const db = this.firebaseService.getFirestore();
-      const newsCollection = collection(db, this.collectionName);
+      if (isAdultContent([data.title, data.description, data.sourceName, data.sourceUrl])) {
+        return { error: true, msg: 'Blocked content', data: null };
+      }
 
       // Check if news with same sourceUrl already exists to avoid duplicates
       if (data.sourceUrl) {
-        const duplicateQuery = query(
-          newsCollection,
-          where('sourceUrl', '==', data.sourceUrl),
-        );
-        const duplicateSnapshot = await getDocs(duplicateQuery);
-
-        if (!duplicateSnapshot.empty) {
-          return {
-            error: true,
-            msg: 'News already exists',
-            data: null,
-          };
+        const dup = await this.sheet.findFirst('news', (r) => String(r.sourceUrl || '') === data.sourceUrl);
+        if (dup) {
+          return { error: true, msg: 'News already exists', data: null };
         }
       }
 
-
+      const now = new Date();
+      const publishedAt = data.publishedAt ? new Date(data.publishedAt) : now;
       const newsData = {
         ...data,
         likes: 0,
         views: 0,
-        publishedAt: data.publishedAt ? Timestamp.fromDate(new Date(data.publishedAt)) : Timestamp.now(),
-        createdAt: Timestamp.now(),
+        publishedAt: publishedAt.toISOString(),
+        createdAt: now.toISOString(),
       };
 
-      const docRef = await addDoc(newsCollection, newsData);
+      const inserted = await this.sheet.insertRow('news', newsData as any);
       return {
         error: false,
         msg: 'News created successfully',
         data: {
-          id: docRef.id,
+          id: inserted.id,
           ...newsData,
-          createdAt: newsData.createdAt.toDate(),
-          publishedAt: newsData.publishedAt.toDate(),
+          createdAt: new Date(newsData.createdAt),
+          publishedAt: new Date(newsData.publishedAt),
         },
       };
     } catch (error) {
@@ -76,40 +57,30 @@ export class NewsService {
   async getNews(params: GetNewsDto & { language?: NewsLanguage }) {
     try {
       const { category, page = 1, limit = 10 } = params;
+      const rows = await this.sheet.getRows('news', { orderBy: { column: 'createdAt', direction: 'desc' } });
 
-      const db = this.firebaseService.getFirestore();
-      const newsCollection = collection(db, this.collectionName);
-
-      // Build query
-      const constraints: any[] = [orderBy('createdAt', 'desc')];
-      
-      if (category && category !== NewsCategory.ALL) {
-        constraints.push(where('category', '==', category));
-      }
-
-      const newsQuery = query(newsCollection, ...constraints);
-      const querySnapshot = await getDocs(newsQuery);
-
-
-      const allDocs = querySnapshot.docs.map((doc) => {
-        const docData = doc.data();
+      let allDocs = rows.map((r) => {
+        const imageLinks =
+          Array.isArray(r.imageLinks) ? r.imageLinks : r.imageLinks ? [r.imageLinks] : [];
         return {
-          id: doc.id,
-          title: docData.title,
-          imageLink: docData.imageLink,
-          imageLinks: docData.imageLinks || [docData.imageLink],
-          description: docData.description,
-          category: docData.category,
-          likes: docData.likes || 0,
-          views: docData.views || 0,
-          sourceName: docData.sourceName,
-          sourceUrl: docData.sourceUrl,
-          createdAt:
-            docData.createdAt instanceof Timestamp
-              ? docData.createdAt.toDate()
-              : docData.createdAt,
+          id: String(r.id),
+          title: r.title,
+          imageLink: r.imageLink,
+          imageLinks: imageLinks.length ? imageLinks : [r.imageLink].filter(Boolean),
+          description: r.description,
+          category: r.category,
+          likes: Number(r.likes || 0),
+          views: Number(r.views || 0),
+          sourceName: r.sourceName,
+          sourceUrl: r.sourceUrl,
+          createdAt: r.createdAt ? new Date(String(r.createdAt)) : null,
         };
       });
+
+      // Category filter (matches existing behavior)
+      if (category && category !== NewsCategory.ALL) {
+        allDocs = allDocs.filter((d) => d.category === category);
+      }
 
       // Search filter
       let filteredDocs = allDocs;
@@ -154,30 +125,29 @@ export class NewsService {
 
   async getNewsById(id: string) {
     try {
-      const db = this.firebaseService.getFirestore();
-      const docRef = doc(db, this.collectionName, id);
-      const snapshot = await getDoc(docRef);
-      if (!snapshot.exists()) {
+      const row = await this.sheet.findById('news', id);
+      if (!row) {
         return { error: true, msg: 'News not found', data: null };
       }
-      const docData = snapshot.data();
+      const imageLinks =
+        Array.isArray(row.imageLinks) ? row.imageLinks : row.imageLinks ? [row.imageLinks] : [];
       return {
         error: false,
         msg: 'News fetched successfully',
         data: {
-          id: snapshot.id,
-          title: docData.title,
-          imageLink: docData.imageLink,
-          imageLinks: docData.imageLinks || [docData.imageLink],
-          description: docData.description,
-          category: docData.category,
-          language: docData.language,
-          likes: docData.likes || 0,
-          views: docData.views || 0,
-          sourceName: docData.sourceName,
-          sourceUrl: docData.sourceUrl,
-          publishedAt: docData.publishedAt instanceof Timestamp ? docData.publishedAt.toDate() : docData.publishedAt,
-          createdAt: docData.createdAt instanceof Timestamp ? docData.createdAt.toDate() : docData.createdAt,
+          id: String(row.id),
+          title: row.title,
+          imageLink: row.imageLink,
+          imageLinks: imageLinks.length ? imageLinks : [row.imageLink].filter(Boolean),
+          description: row.description,
+          category: row.category,
+          language: row.language,
+          likes: Number(row.likes || 0),
+          views: Number(row.views || 0),
+          sourceName: row.sourceName,
+          sourceUrl: row.sourceUrl,
+          publishedAt: row.publishedAt ? new Date(String(row.publishedAt)) : null,
+          createdAt: row.createdAt ? new Date(String(row.createdAt)) : null,
         },
       };
     } catch (error) {
@@ -187,14 +157,14 @@ export class NewsService {
 
   async likeNews(id: string) {
     try {
-      const db = this.firebaseService.getFirestore();
-      const docRef = doc(db, this.collectionName, id);
-      await updateDoc(docRef, { likes: increment(1) });
-      const updated = await getDoc(docRef);
+      const existing = await this.sheet.findById('news', id);
+      if (!existing) return { error: true, msg: 'News not found', data: null };
+      const nextLikes = Number(existing.likes || 0) + 1;
+      await this.sheet.updateRowById('news', id, { likes: nextLikes });
       return {
         error: false,
         msg: 'Liked successfully',
-        data: { id, likes: updated.data()?.likes ?? 0 },
+        data: { id, likes: nextLikes },
       };
     } catch (error) {
       return { error: true, msg: error.message || 'Failed to like news', data: null };
@@ -203,14 +173,14 @@ export class NewsService {
 
   async viewNews(id: string) {
     try {
-      const db = this.firebaseService.getFirestore();
-      const docRef = doc(db, this.collectionName, id);
-      await updateDoc(docRef, { views: increment(1) });
-      const updated = await getDoc(docRef);
+      const existing = await this.sheet.findById('news', id);
+      if (!existing) return { error: true, msg: 'News not found', data: null };
+      const nextViews = Number(existing.views || 0) + 1;
+      await this.sheet.updateRowById('news', id, { views: nextViews });
       return {
         error: false,
         msg: 'View counted',
-        data: { id, views: updated.data()?.views ?? 0 },
+        data: { id, views: nextViews },
       };
     } catch (error) {
       return { error: true, msg: error.message || 'Failed to count view', data: null };

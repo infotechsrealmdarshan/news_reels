@@ -2,26 +2,11 @@ import { ApiProperty } from '@nestjs/swagger';
 import { IsString, IsNotEmpty, IsOptional, IsUrl } from 'class-validator';
 
 export class CreateReelDto {
-  @ApiProperty({ example: 'dQw4w9WgXcQ' })
-  @IsString()
-  @IsNotEmpty()
-  videoId: string;
-
-  @ApiProperty({ example: 'https://www.youtube.com/shorts/dQw4w9WgXcQ' })
+  @ApiProperty({ example: 'https://v.redd.it/xyz.mp4' })
   @IsString()
   @IsNotEmpty()
   @IsUrl()
   reelUrl: string;
-
-  @ApiProperty({ example: 'fitness', required: false })
-  @IsString()
-  @IsOptional()
-  category?: string;
-
-  @ApiProperty({ example: 'hindi', required: false })
-  @IsString()
-  @IsOptional()
-  language?: string;
 
   @ApiProperty({ example: 'Amazing viral video' })
   @IsString()

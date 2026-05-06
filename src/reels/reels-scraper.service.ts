@@ -1,182 +1,306 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import axios from 'axios';
 import { ReelsService } from './reels.service';
-import puppeteer from 'puppeteer-extra';
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 
-puppeteer.use(StealthPlugin());
+interface ScrapedReel {
+  title: string;
+  reelUrl: string;
+  thumbnailUrl: string;
+  source: string;
+  category: string;
+}
 
-export const CATEGORIES = [
-  "news", "fitness", "tech", "motivation", "funny", "business",
-  "education", "entertainment", "gaming", "sports", "music", "travel",
-  "food", "lifestyle", "fashion", "beauty", "diy", "science",
-  "nature", "art", "photography", "pets", "finance"
+// ─── 35+ Viral Video Subreddits ───────────────────────────────────────────────
+const VIDEO_SUBREDDITS = [
+  // Satisfying / Amazing
+  'nextfuckinglevel', 'BeAmazed', 'oddlysatisfying', 'damnthatsinteresting',
+  'interestingasfuck', 'woahdude', 'NatureIsFuckingLit', 'MediaSynthesis',
+
+  // Funny / Fail
+  'WatchPeopleDieInside', 'instant_regret', 'funny', 'Unexpected',
+  'holdmybeer', 'PeopleFailing', 'youseeingthisshit', 'AbruptChaos',
+
+  // Animals
+  'AnimalsBeingBros', 'AnimalsBeingJerks', 'WhatsWrongWithYourCat',
+  'WhatsWrongWithYourDog', 'aww', 'Eyebleach', 'likeus',
+
+  // Wholesome
+  'HumansBeingBros', 'MadeMeSmile', 'ContagiousLaughter', 'UpliftingNews',
+
+  // Shocking / Drama
+  'PublicFreakout', 'Wellthatsucks', 'SweatyPalms', 'ANormalDayInRussia',
+  'therewasanattempt', 'facepalm', 'mildlyinfuriating',
+
+  // Skills / Sports
+  'gifs', 'JusticeServed', 'Damnthatsinteresting',
 ];
 
-const FORBIDDEN_KEYWORDS = [
-  'porn', 'sex', 'xxx', 'naked', 'adult', 'nsfw', 'erotic', 'lingerie',
-  'boobs', 'dick', 'pussy', 'vagina', 'fuck', 'shit', 'asshole', 'blowjob', 'sexual'
-];
+// Category mapping for subreddits
+const SUBREDDIT_CATEGORIES: Record<string, string> = {
+  // Satisfying / Amazing
+  'nextfuckinglevel': 'Amazing',
+  'BeAmazed': 'Amazing',
+  'oddlysatisfying': 'Satisfying',
+  'damnthatsinteresting': 'Interesting',
+  'interestingasfuck': 'Interesting',
+  'woahdude': 'Mind-blowing',
+  'NatureIsFuckingLit': 'Nature',
+  'MediaSynthesis': 'Technology',
+
+  // Funny / Fail
+  'WatchPeopleDieInside': 'Funny',
+  'instant_regret': 'Funny',
+  'funny': 'Funny',
+  'Unexpected': 'Funny',
+  'holdmybeer': 'Funny',
+  'PeopleFailing': 'Fail',
+  'youseeingthisshit': 'Funny',
+  'AbruptChaos': 'Funny',
+
+  // Animals
+  'AnimalsBeingBros': 'Animals',
+  'AnimalsBeingJerks': 'Animals',
+  'WhatsWrongWithYourCat': 'Animals',
+  'WhatsWrongWithYourDog': 'Animals',
+  'aww': 'Animals',
+  'Eyebleach': 'Animals',
+  'likeus': 'Animals',
+
+  // Wholesome
+  'HumansBeingBros': 'Wholesome',
+  'MadeMeSmile': 'Wholesome',
+  'ContagiousLaughter': 'Wholesome',
+  'UpliftingNews': 'Wholesome',
+
+  // Shocking / Drama
+  'PublicFreakout': 'Drama',
+  'Wellthatsucks': 'Drama',
+  'SweatyPalms': 'Shocking',
+  'ANormalDayInRussia': 'Shocking',
+  'therewasanattempt': 'Fail',
+  'facepalm': 'Fail',
+  'mildlyinfuriating': 'Frustrating',
+
+  // Skills / Sports
+  'gifs': 'Entertainment',
+  'JusticeServed': 'Justice',
+  'Damnthatsinteresting': 'Interesting',
+};
+
 
 @Injectable()
-export class ReelsScraperService implements OnModuleInit, OnModuleDestroy {
+export class ReelsScraperService {
   private readonly logger = new Logger(ReelsScraperService.name);
-  private browser: any = null;
 
   constructor(private readonly reelsService: ReelsService) { }
 
-  async onModuleInit() {
-    this.logger.log('YouTube Shorts Puppeteer Scraper Initialized. Cron set for every 1 minute.');
-    try {
-      this.browser = await puppeteer.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-      });
-      this.logger.log('Puppeteer Browser launched successfully in background.');
-    } catch (e) {
-      this.logger.error('Failed to launch Puppeteer:', e);
-    }
-  }
-
-  async onModuleDestroy() {
-    if (this.browser) {
-      await this.browser.close();
-    }
-  }
-
-  @Cron('* * * * *', { timeZone: 'Asia/Kolkata' })
+  @Cron('*/5 * * * *') // Every 30 minutes
   async handleCron() {
-    this.logger.log('[REELS SCRAPER] Scraper cron triggered...');
-    await this.scrapeYoutubeShorts();
+    this.logger.log('[REELS SCRAPER] Scraper cron triggered (target 5000)...');
+    await this.scrapeViralReels(5000);
   }
 
-  async scrapeYoutubeShorts(): Promise<number> {
-    if (!this.browser) {
-      this.logger.error('[REELS SCRAPER] Browser is not initialized. Skipping cycle.');
-      return 0;
+  async scrapeViralReels(targetMax: number = 5000): Promise<number> {
+    const TARGET_MAX = targetMax;
+
+    // Fetch from all subreddits sequentially to avoid 429
+    const allReels: ScrapedReel[] = [];
+
+    for (const subreddit of VIDEO_SUBREDDITS) {
+      const result = await this.fetchSubredditPosts(subreddit);
+      if (result) {
+        allReels.push(...result);
+      }
+      // Random delay between each subreddit request (5-10 seconds) to avoid rate limiting
+      const randomDelay = 5000 + Math.random() * 5000;
+      await this.sleep(randomDelay);
     }
 
-    // Pick a completely random category from the 20+ list
-    const randomIndex = Math.floor(Math.random() * CATEGORIES.length);
-    const category = CATEGORIES[randomIndex];
-    
-    // Add some random variety to the search term as well
-    const queryTypes = [`${category} shorts india viral`, `viral ${category} shorts hindi`, `trending ${category} shorts gujarati`, `best ${category} shorts`];
-    const queryStr = queryTypes[Math.floor(Math.random() * queryTypes.length)];
+    // Deduplicate by URL
+    const seen = new Set<string>();
+    const unique = allReels.filter(r => {
+      if (seen.has(r.reelUrl)) return false;
+      seen.add(r.reelUrl);
+      return true;
+    });
 
-    this.logger.log(`[REELS SCRAPER] Random Category Selected: [${category}] - Fetching via Puppeteer: ${queryStr}`);
+    this.logger.log(`[REELS SCRAPER] ${unique.length} viral reels found — saving up to ${TARGET_MAX}`);
 
-    let page;
-    try {
-      page = await this.browser.newPage();
-      
-      // Block images/fonts to speed up scraping
-      await page.setRequestInterception(true);
-      page.on('request', (req: any) => {
-        if (req.resourceType() === 'image' || req.resourceType() === 'stylesheet' || req.resourceType() === 'font') {
-          req.continue();
-        } else {
-          req.continue();
-        }
-      });
+    // Store all unique categories in categories table
+    await this.storeCategories(unique);
 
-      const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(queryStr)}`;
-      await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 30000 });
-
-      // Scroll to load more results
-      await page.evaluate(() => window.scrollBy(0, 1000));
-      await new Promise(r => setTimeout(r, 2000));
-      await page.evaluate(() => window.scrollBy(0, 1000));
-      await new Promise(r => setTimeout(r, 2000));
-
-      const scrapedVideos = await page.evaluate(() => {
-        const results = [];
-        const elements = document.querySelectorAll('ytd-reel-item-renderer, ytd-video-renderer');
-        
-        for (const el of elements) {
-          const link = el.querySelector('a[href^="/shorts/"]');
-          if (!link) continue;
-          
-          const href = link.getAttribute('href');
-          const match = href?.match(/\/shorts\/([^?&]+)/);
-          if (!match) continue;
-          
-          const videoId = match[1];
-          const titleEl = el.querySelector('span[id="video-title"], #video-title, h3');
-          const title = titleEl ? titleEl.textContent?.trim() : '';
-          
-          const channelEl = el.querySelector('#channel-name a, .ytd-channel-name a');
-          const channelTitle = channelEl ? channelEl.textContent?.trim() : 'YouTube Shorts';
-          
-          results.push({ videoId, title, channelTitle });
-        }
-        return results;
-      });
-
-      await page.close();
-
-      const validVideos = [];
-      const seenIds = new Set();
-
-      for (const video of scrapedVideos) {
-        if (!video.videoId || !video.title || seenIds.has(video.videoId)) continue;
-        
-        const lowerTitle = video.title.toLowerCase();
-
-        // Strict content filtering
-        const isAdult = FORBIDDEN_KEYWORDS.some(keyword => lowerTitle.includes(keyword));
-
-        if (isAdult) {
-          this.logger.debug(`[REELS SCRAPER] 🔞 Skipping restricted content: ${video.title}`);
-          continue;
-        }
-
-        seenIds.add(video.videoId);
-        
-        validVideos.push({
-          videoId: video.videoId,
-          title: this.cleanText(video.title),
-          description: this.cleanText(video.title),
-          thumbnailUrl: `https://i.ytimg.com/vi/${video.videoId}/hqdefault.jpg`,
-          channelTitle: video.channelTitle,
-          category, // We store the randomly chosen category in the DB
-          reelUrl: `https://www.youtube.com/shorts/${video.videoId}`,
-          profileImage: `https://ui-avatars.com/api/?name=${encodeURIComponent(video.channelTitle || 'YT')}&background=random`
-        });
-      }
-
-      let addedCount = 0;
-      for (const video of validVideos.slice(0, 50)) {
+    let addedCount = 0;
+    for (const reel of unique.slice(0, TARGET_MAX)) {
+      try {
         const result = await this.reelsService.createReelWithEngagement({
-          videoId: video.videoId,
-          reelUrl: video.reelUrl,
-          title: video.title,
-          description: video.description,
-          category: video.category,
-          thumbnailUrl: video.thumbnailUrl,
-          profileImage: video.profileImage,
+          reelUrl: reel.reelUrl,
+          title: reel.title,
+          thumbnailUrl: reel.thumbnailUrl,
+          category: reel.category,
           likes: 0,
           views: 0,
         });
 
         if (!result.error) {
           addedCount++;
+          this.logger.log(`[REELS SCRAPER] ✅ Saved: "${reel.title.slice(0, 50)}" [${reel.source}]`);
+        } else if (result.msg === 'Reel already exists') {
+          this.logger.debug(`[REELS SCRAPER] ⏭ Duplicate: ${reel.reelUrl.slice(0, 60)}`);
+        } else {
+          this.logger.warn(`[REELS SCRAPER] ❌ Failed [${reel.source}]: ${result.msg}`);
         }
+      } catch (e) {
+        this.logger.error(`[REELS SCRAPER] Error saving reel: ${e.message}`);
+      }
+    }
+
+    this.logger.log(`[REELS SCRAPER] Done. Added ${addedCount} new reels.`);
+    return addedCount;
+  }
+
+  // ─── Reddit Scraper ───────────────────────────────────────────────────────────
+  private async fetchSubredditPosts(subreddit: string): Promise<ScrapedReel[]> {
+    try {
+      const response = await axios.get(
+        `https://www.reddit.com/r/${subreddit}/top.json?t=week&limit=100&raw_json=1`,
+        {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (compatible; NewsReelsScraper/1.0)',
+            'Accept': 'application/json',
+          },
+          timeout: 30000,
+        },
+      );
+
+      const data = response.data;
+      const posts = data?.data?.children || [];
+      const reels: ScrapedReel[] = [];
+
+      for (const { data: p } of posts) {
+        if (p.over_18) continue;
+
+        const videoUrl = this.extractVideoUrl(p);
+        if (!videoUrl) continue;
+
+        const thumbnailUrl = this.extractThumbnailUrl(p);
+
+        const title = this.cleanText(p.title);
+        if (!title || title.length < 5) continue;
+
+        reels.push({
+          title,
+          reelUrl: videoUrl,
+          thumbnailUrl,
+          source: `r/${subreddit}`,
+          category: SUBREDDIT_CATEGORIES[subreddit] || 'General',
+        });
       }
 
-      this.logger.log(`[REELS SCRAPER] ✅ Added ${addedCount} new shorts for random category: "${category}"`);
-
-      return addedCount;
+      this.logger.debug(`[REDDIT] r/${subreddit}: ${reels.length} videos`);
+      return reels;
     } catch (error) {
-      this.logger.error(`[REELS SCRAPER] Puppeteer Scraping Error: ${error.message}`);
-      if (page && !page.isClosed()) {
-          await page.close().catch(() => {});
+      if (error.code === 'ECONNABORTED' || error.code === 'ENOTFOUND' || error.code === 'ETIMEDOUT') {
+        this.logger.error(`[REDDIT] r/${subreddit} Network error: ${error.message}`);
+      } else if (error.response?.status === 404) {
+        this.logger.warn(`[REDDIT] r/${subreddit} not found, skipping...`);
+      } else if (error.response?.status === 429) {
+        this.logger.warn(`[REDDIT] r/${subreddit} Rate limited, skipping...`);
+      } else {
+        this.logger.error(`[REDDIT] r/${subreddit} failed: ${error.message}`);
       }
-      return 0;
+      return [];
     }
   }
 
+  private extractVideoUrl(p: any): string | null {
+    // 1. Reddit-hosted video
+    const redditVideo =
+      p.media?.reddit_video?.fallback_url ||
+      p.secure_media?.reddit_video?.fallback_url;
+    if (redditVideo) return redditVideo.split('?')[0];
+
+    // 2. Preview video
+    const previewVideo = p.preview?.reddit_video_preview?.fallback_url;
+    if (previewVideo) return previewVideo.split('?')[0];
+
+    // 3. Direct video/gif URLs
+    const url = p.url || '';
+    if (
+      url.endsWith('.mp4') ||
+      url.endsWith('.gifv') ||
+      url.endsWith('.gif') ||
+      url.includes('v.redd.it') ||
+      url.includes('gfycat.com') ||
+      url.includes('streamable.com') ||
+      (url.includes('imgur.com') && (url.includes('.mp4') || url.includes('.gifv')))
+    ) {
+      return url;
+    }
+
+    return null;
+  }
+
+  private extractThumbnailUrl(p: any): string {
+    // Try to get high-res preview image
+    const preview = p.preview?.images?.[0]?.source?.url;
+    if (preview) {
+      // Fix Reddit's URL encoding
+      return preview.replace(/&amp;/g, '&');
+    }
+
+    // Fallback to thumbnail
+    if (p.thumbnail && p.thumbnail.startsWith('http')) {
+      return p.thumbnail;
+    }
+
+    return '';
+  }
+
+  // ─── Helpers ──────────────────────────────────────────────────────────────────
   private cleanText(text: string): string {
-    return text.replace(/&#39;/g, "'").replace(/&amp;/g, "&").replace(/&quot;/g, '"');
+    return text
+      .replace(/<[^>]+>/g, '')
+      .replace(/\[.*?\]/g, '')
+      .replace(/https?:\/\/\S+/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private chunkArray<T>(arr: T[], size: number): T[][] {
+    const chunks: T[][] = [];
+    for (let i = 0; i < arr.length; i += size) {
+      chunks.push(arr.slice(i, i + size));
+    }
+    return chunks;
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  private async storeCategories(reels: ScrapedReel[]): Promise<void> {
+    try {
+      // Get all unique categories from reels
+      const uniqueCategories = [...new Set(reels.map(r => r.category))];
+      
+      for (const categoryName of uniqueCategories) {
+        // Check if category already exists
+        const existing = await this.reelsService.findCategoryByName(categoryName);
+        
+        if (!existing) {
+          // Create new category
+          await this.reelsService.createCategory({
+            name: categoryName,
+            type: 'content' // Default type
+          });
+          this.logger.log(`[REELS SCRAPER] ✅ Created category: ${categoryName}`);
+        } else {
+          this.logger.debug(`[REELS SCRAPER] Category already exists: ${categoryName}`);
+        }
+      }
+    } catch (error) {
+      this.logger.error(`[REELS SCRAPER] Error storing categories: ${error.message}`);
+    }
   }
 }

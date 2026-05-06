@@ -1,61 +1,51 @@
 import { Injectable } from '@nestjs/common';
-import { FirebaseService } from '../firebase/firebase.service';
-import {
-  collection, addDoc, getDocs, query, orderBy, Timestamp, where,
-  doc, updateDoc, increment, getDoc,
-} from 'firebase/firestore';
+import { GoogleSheetService, SheetName } from '../google-sheet/google-sheet.service';
 import { GetReelsDto } from './dto/get-reels.dto';
 
 @Injectable()
 export class ReelsService {
-  private collectionName = 'reels';
+  private sheetName: SheetName = 'reels' as const;
 
-  constructor(private firebaseService: FirebaseService) { }
+  constructor(private googleSheetService: GoogleSheetService) {}
 
-  async createReel(data: { videoId: string; reelUrl: string; title: string; description: string; category?: string; language?: string; }) {
+  async createReel(data: { reelUrl: string; title: string }) {
     return this.createReelWithEngagement({ ...data, likes: 0, views: 0 });
   }
 
   async createReelWithEngagement(data: {
-    videoId: string;
     reelUrl: string;
     title: string;
-    description: string;
-    category?: string;
     thumbnailUrl?: string;
-    profileImage?: string;
+    category?: string;
     likes?: number;
     views?: number;
   }) {
     try {
-      const db = this.firebaseService.getFirestore();
-      const reelsCollection = collection(db, this.collectionName);
-
-      // Duplicate check by videoId
-      const dupQuery = query(reelsCollection, where('videoId', '==', data.videoId));
-      const dupSnapshot = await getDocs(dupQuery);
-      if (!dupSnapshot.empty) {
+      // Duplicate check by reelUrl
+      const existing = await this.googleSheetService.findFirst(
+        this.sheetName,
+        (row) => row.reelUrl === data.reelUrl
+      );
+      
+      if (existing) {
         return { error: true, msg: 'Reel already exists', data: null };
       }
 
       const reelData = {
-        videoId: data.videoId,
         reelUrl: data.reelUrl,
         title: data.title,
-        description: data.description,
-        category: data.category || '',
         thumbnailUrl: data.thumbnailUrl || '',
-        profileImage: data.profileImage || '',
+        category: data.category || 'General',
         views: data.views ?? 0,
         likes: data.likes ?? 0,
-        createdAt: Timestamp.now(),
+        createdAt: new Date().toISOString(),
       };
 
-      const docRef = await addDoc(reelsCollection, reelData);
+      const result = await this.googleSheetService.insertRow(this.sheetName, reelData);
       return {
         error: false,
         msg: 'Reel created successfully',
-        data: { id: docRef.id, ...reelData, createdAt: reelData.createdAt.toDate() },
+        data: { id: result.id, ...result.row },
       };
     } catch (error) {
       return {
@@ -69,55 +59,28 @@ export class ReelsService {
   async getReels(params: GetReelsDto) {
     try {
       const { page = 1, limit = 10 } = params;
-      const db = this.firebaseService.getFirestore();
-      const reelsCollection = collection(db, this.collectionName);
-      const reelsQuery = query(reelsCollection, orderBy('createdAt', 'desc'));
-
-      const querySnapshot = await getDocs(reelsQuery);
-      const allData = querySnapshot.docs.map(doc => {
-        const docData = doc.data();
-        return {
-          id: doc.id,
-          videoId: docData.videoId,
-          reelUrl: docData.reelUrl,
-          title: docData.title,
-          description: docData.description,
-          category: docData.category,
-          thumbnailUrl: docData.thumbnailUrl || '',
-          views: docData.views || 0,
-          likes: docData.likes || 0,
-          createdAt: docData.createdAt instanceof Timestamp ? docData.createdAt.toDate() : docData.createdAt,
-        };
+      const allData = await this.googleSheetService.getRows(this.sheetName, {
+        orderBy: { column: 'createdAt', direction: 'desc' }
       });
 
-      // Search and Filter
+      // Search filter
       let filteredData = allData;
       if (params.search) {
         const searchTerm = params.search.toLowerCase();
-        filteredData = filteredData.filter(
+        filteredData = allData.filter(
           (reel) =>
-            (reel.title && reel.title.toLowerCase().includes(searchTerm)) ||
-            (reel.description && reel.description.toLowerCase().includes(searchTerm)),
+            (reel.title && reel.title.toLowerCase().includes(searchTerm)),
         );
       }
-      if (params.category) {
-        const categorySearch = params.category.toLowerCase();
-        filteredData = filteredData.filter(
-          (reel) => reel.category && reel.category.toLowerCase() === categorySearch
-        );
-      }
-
-      // Interleave reels by category to avoid same category consecutively
-      const interleavedData = this.interleaveByCategory(filteredData);
 
       // Pagination
       const parsedPage = Number(page) || 1;
       const parsedLimit = Number(limit) || 10;
 
-      const total = interleavedData.length;
+      const total = filteredData.length;
       const totalPages = Math.ceil(total / parsedLimit);
       const startIndex = (parsedPage - 1) * parsedLimit;
-      const paginatedData = interleavedData.slice(startIndex, startIndex + parsedLimit);
+      const paginatedData = filteredData.slice(startIndex, startIndex + parsedLimit);
 
       return {
         error: false,
@@ -137,14 +100,20 @@ export class ReelsService {
 
   async likeReel(id: string) {
     try {
-      const db = this.firebaseService.getFirestore();
-      const docRef = doc(db, this.collectionName, id);
-      await updateDoc(docRef, { likes: increment(1) });
-      const updated = await getDoc(docRef);
+      const existing = await this.googleSheetService.findById(this.sheetName, id);
+      if (!existing) {
+        return { error: true, msg: 'Reel not found', data: null };
+      }
+
+      const updatedLikes = (Number(existing.likes) || 0) + 1;
+      const updated = await this.googleSheetService.updateRowById(this.sheetName, id, {
+        likes: updatedLikes
+      });
+
       return {
         error: false,
         msg: 'Liked successfully',
-        data: { id, likes: updated.data()?.likes ?? 0 },
+        data: { id, likes: updated?.likes ?? 0 },
       };
     } catch (error) {
       return { error: true, msg: error.message || 'Failed to like reel', data: null };
@@ -153,48 +122,63 @@ export class ReelsService {
 
   async viewReel(id: string) {
     try {
-      const db = this.firebaseService.getFirestore();
-      const docRef = doc(db, this.collectionName, id);
-      await updateDoc(docRef, { views: increment(1) });
-      const updated = await getDoc(docRef);
+      const existing = await this.googleSheetService.findById(this.sheetName, id);
+      if (!existing) {
+        return { error: true, msg: 'Reel not found', data: null };
+      }
+
+      const updatedViews = (Number(existing.views) || 0) + 1;
+      const updated = await this.googleSheetService.updateRowById(this.sheetName, id, {
+        views: updatedViews
+      });
+
       return {
         error: false,
         msg: 'View counted',
-        data: { id, views: updated.data()?.views ?? 0 },
+        data: { id, views: updated?.views ?? 0 },
       };
     } catch (error) {
       return { error: true, msg: error.message || 'Failed to count view', data: null };
     }
   }
 
-  private interleaveByCategory(reels: any[]): any[] {
-    if (reels.length === 0) return [];
-
-    // Group reels by category
-    const categoryMap = new Map<string, any[]>();
-    for (const reel of reels) {
-      const category = reel.category || 'uncategorized';
-      if (!categoryMap.has(category)) {
-        categoryMap.set(category, []);
-      }
-      categoryMap.get(category)!.push(reel);
+  // Category management methods
+  async findCategoryByName(name: string): Promise<any> {
+    try {
+      const categories = await this.googleSheetService.getRows('categories');
+      return categories.find(cat => cat.name === name);
+    } catch (error) {
+      console.error('[REELS SERVICE] Error finding category:', error);
+      return null;
     }
+  }
 
-    const categories = Array.from(categoryMap.keys());
-    const interleaved: any[] = [];
-    let index = 0;
+  async createCategory(categoryData: { name: string; type: string }): Promise<any> {
+    try {
+      const category = {
+        id: this.generateId(),
+        name: categoryData.name,
+        type: categoryData.type,
+        createdAt: new Date().toISOString(),
+      };
 
-    // Round-robin interleaving
-    while (interleaved.length < reels.length) {
-      for (const category of categories) {
-        const categoryReels = categoryMap.get(category)!;
-        if (index < categoryReels.length) {
-          interleaved.push(categoryReels[index]);
-        }
-      }
-      index++;
+      const result = await this.googleSheetService.insertRow('categories', category);
+      return {
+        error: false,
+        msg: 'Category created successfully',
+        data: { id: result.id, ...result.row },
+      };
+    } catch (error) {
+      console.error('[REELS SERVICE] Error creating category:', error);
+      return {
+        error: true,
+        msg: error.message || 'Failed to create category',
+        data: null,
+      };
     }
+  }
 
-    return interleaved;
+  private generateId(): string {
+    return Date.now().toString(36) + Math.random().toString(36).substr(2);
   }
 }

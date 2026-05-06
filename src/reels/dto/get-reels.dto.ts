@@ -31,11 +31,4 @@ export class GetReelsDto {
   @IsInt()
   @Min(1)
   limit?: number = 10;
-
-  @ApiPropertyOptional({
-    description: 'Filter by category',
-    example: 'fitness',
-  })
-  @IsOptional()
-  category?: string;
 }
